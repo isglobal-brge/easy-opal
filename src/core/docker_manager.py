@@ -8,7 +8,7 @@ from typing import Dict, Any
 from ruamel.yaml import YAML
 from rich.console import Console
 
-from core.config_manager import load_config, BACKUPS_DIR
+from core.config_manager import load_config, BACKUPS_DIR, DATA_DIR
 
 console = Console()
 COMPOSE_TEMPLATE_PATH = Path("src/templates/docker-compose.yml.tpl")
@@ -63,17 +63,41 @@ def generate_compose_file():
     compose_string = compose_string.replace("${OPAL_ADMIN_PASSWORD}", config["opal_admin_password"])
     compose_string = compose_string.replace("${OPAL_EXTERNAL_PORT}", str(config["opal_external_port"]))
     
+    # Build the list of rock hosts for discovery
+    rock_hosts = []
+    for profile in config.get("profiles", []):
+        rock_hosts.append(f"http://{profile['name']}:8085")
+    
+    compose_string = compose_string.replace("${OPAL_ROCK_HOSTS}", ",".join(rock_hosts))
+
     compose_data = yaml.load(compose_string)
 
     # Add rock profiles
     for profile in config.get("profiles", []):
         service_name = profile["name"]
+        cluster_name = "default" if service_name == "rock" else service_name
+
+        # Create a dedicated volume directory for the profile
+        rock_home_path = DATA_DIR / "rock" / service_name
+        rock_home_path.mkdir(parents=True, exist_ok=True)
+
         compose_data["services"][service_name] = {
             "image": f"{profile['image']}:{profile['tag']}",
             "container_name": f"{config['stack_name']}-{service_name}",
             "restart": "always",
             "networks": ["opal-net"],
-            "depends_on": ["opal"]
+            "environment": [
+                f"ROCK_CLUSTER={cluster_name}",
+                f"ROCK_ID={config['stack_name']}-{service_name}",
+                "ROCK_ADMINISTRATOR_NAME=administrator",
+                "ROCK_ADMINISTRATOR_PASSWORD=password",
+                "ROCK_MANAGER_NAME=manager",
+                "ROCK_MANAGER_PASSWORD=password",
+                "ROCK_USER_NAME=user",
+                "ROCK_USER_PASSWORD=password",
+            ],
+            "volumes": [f"./{rock_home_path.as_posix()}:/srv"],
+            "depends_on": ["opal"],
         }
 
     with open(DOCKER_COMPOSE_PATH, "w") as f:
@@ -109,14 +133,14 @@ def run_docker_compose(command: list):
         console.print(f"[bold red]An error occurred: {e}[/bold red]")
         sys.exit(1)
 
-def docker_up():
-    run_docker_compose(["up", "-d"])
+def docker_up(remove_orphans=False):
+    command = ["up", "-d"]
+    if remove_orphans:
+        command.append("--remove-orphans")
+    run_docker_compose(command)
 
 def docker_down():
     run_docker_compose(["down"])
-
-def docker_restart():
-    run_docker_compose(["restart"])
 
 def docker_reset():
     run_docker_compose(["down", "-v"])

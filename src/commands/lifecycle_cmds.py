@@ -1,12 +1,15 @@
 import click
+import shutil
 from rich.console import Console
+from rich.prompt import Confirm
 from core.docker_manager import (
     docker_up,
     docker_down,
-    docker_restart,
     docker_reset,
     docker_status,
+    DOCKER_COMPOSE_PATH,
 )
+from core.config_manager import CONFIG_FILE, CERTS_DIR
 
 console = Console()
 
@@ -23,20 +26,34 @@ def down():
     docker_down()
 
 @click.command()
-def restart():
-    """Restarts the Opal stack."""
-    console.print("[bold cyan]Restarting the Opal stack...[/bold cyan]")
-    docker_restart()
-
-@click.command()
 def reset():
-    """Stops the stack and removes all associated data volumes."""
-    if click.confirm(
-        "[bold red]This will permanently delete all data (mongo database, etc). Are you sure you want to continue?[/bold red]",
-        abort=True
+    """Stops the stack, removes all data, and deletes configuration files."""
+    if Confirm.ask(
+        "[bold red]This will permanently delete all Docker data, certificates, and configuration files. You will have to run setup again. Are you sure?[/bold red]",
+        default=False,
     ):
-        console.print("[bold cyan]Resetting the Opal stack...[/bold cyan]")
+        console.print("[bold cyan]Resetting the Opal stack and configuration...[/bold cyan]")
         docker_reset()
+
+        # Delete the configuration files
+        if CONFIG_FILE.exists():
+            CONFIG_FILE.unlink()
+            console.print(f"[yellow]Deleted {CONFIG_FILE}[/yellow]")
+
+        if DOCKER_COMPOSE_PATH.exists():
+            DOCKER_COMPOSE_PATH.unlink()
+            console.print(f"[yellow]Deleted {DOCKER_COMPOSE_PATH}[/yellow]")
+
+        # Delete certificates directory
+        if CERTS_DIR.exists():
+            shutil.rmtree(CERTS_DIR)
+            console.print(f"[yellow]Deleted certificates directory: {CERTS_DIR}[/yellow]")
+
+        console.print(
+            "\n[green]Project has been reset. Run 'python3 easy-opal.py setup' to start over.[/green]"
+        )
+    else:
+        console.print("[yellow]Reset aborted.[/yellow]")
 
 @click.command()
 def status():

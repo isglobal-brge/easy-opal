@@ -22,6 +22,19 @@ http {
     keepalive_timeout  65;
 
     server {
+        listen 80;
+        server_name ${OPAL_HOSTNAME};
+
+        location /.well-known/acme-challenge/ {
+            root /var/www/certbot;
+        }
+
+        location / {
+            return 301 https://$host$request_uri;
+        }
+    }
+
+    server {
         listen 443 ssl;
         server_name ${OPAL_HOSTNAME};
 

@@ -4,7 +4,7 @@ from rich.prompt import Prompt
 from rich.table import Table
 
 from core.config_manager import load_config, save_config
-from core.docker_manager import generate_compose_file
+from core.docker_manager import generate_compose_file, docker_up
 
 console = Console()
 
@@ -14,26 +14,42 @@ def profile():
     pass
 
 @profile.command()
-@click.option('--name', prompt='Profile service name (e.g., datashield-rock)', help='The service name for the profile in docker-compose.')
-@click.option('--image', prompt='Docker image', default='datashield/rock-base', help='The Docker image for the profile.')
-@click.option('--tag', prompt='Image tag', default='latest', help='The tag of the Docker image.')
-def add(name, image, tag):
-    """Adds a new Rock profile."""
-    console.print(f"[cyan]Adding profile '{name}'...[/cyan]")
+def add():
+    """Adds a new Rock profile to the configuration."""
+    console.print("\n[cyan]Adding a new Rock profile...[/cyan]")
+    
     config = load_config()
+    
+    # --- Interactive Prompt for Profile ---
+    repository = Prompt.ask("Enter the Docker Hub repository", default="datashield")
+    image = Prompt.ask("Enter the image name (e.g., rock-base)")
+    if not image.strip():
+        console.print("[bold red]Image name cannot be empty.[/bold red]")
+        return
+        
+    tag = Prompt.ask("Enter the image tag", default="latest")
+    
+    default_name = f"rock-{image.replace('rock-', '')}"
+    name = Prompt.ask("Enter a service name for this profile", default=default_name)
+    
+    full_image_name = f"{repository}/{image}"
 
     # Check for duplicate profile names
     if any(p['name'] == name for p in config['profiles']):
-        console.print(f"[bold red]A profile with the name '{name}' already exists.[/bold red]")
+        console.print(f"[bold red]A profile with the service name '{name}' already exists.[/bold red]")
         return
 
-    new_profile = {"name": name, "image": image, "tag": tag}
+    new_profile = {"name": name, "image": full_image_name, "tag": tag}
     config['profiles'].append(new_profile)
     save_config(config)
     
-    console.print(f"[green]Profile '{name}' added to configuration.[/green]")
+    console.print(f"\n[green]Profile '{name}' with image '{full_image_name}:{tag}' has been added.[/green]")
+    
+    # Regenerate compose file and apply changes
     generate_compose_file()
-    console.print("\nRun 'python3 easy-opal.py up' to apply the changes.")
+    console.print("\n[cyan]Applying changes to the running stack...[/cyan]")
+    docker_up()
+    console.print("[green]Stack updated. The new profile container should be running.[/green]")
 
 @profile.command()
 def remove():
@@ -63,7 +79,10 @@ def remove():
 
     console.print(f"[green]Profile '{profile_to_remove['name']}' removed.[/green]")
     generate_compose_file()
-    console.print("\nRun 'python3 easy-opal.py up' to apply the changes.")
+    
+    console.print("\n[cyan]Applying changes to the running stack...[/cyan]")
+    docker_up(remove_orphans=True)
+    console.print("[green]Stack updated. The profile's container has been removed.[/green]")
 
 
 @profile.command(name="list")

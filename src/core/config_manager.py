@@ -25,8 +25,10 @@ def get_default_config() -> Dict[str, Any]:
             }
         ],
         "ssl": {
+            "strategy": "self-signed",
             "cert_path": str(CERTS_DIR / "opal.crt"),
             "key_path": str(CERTS_DIR / "opal.key"),
+            "le_email": ""
         }
     }
 
