@@ -15,7 +15,7 @@ services:
     depends_on:
       - mongo
     volumes:
-      - ./data/opal:/srv
+      - opal_srv_data:/srv
     environment:
       - MONGO_HOST=mongo
       - MONGO_PORT=27017
@@ -64,4 +64,5 @@ networks:
     driver: bridge
 
 volumes:
-  opal_mongo_data: 
+  opal_mongo_data:
+  opal_srv_data: 

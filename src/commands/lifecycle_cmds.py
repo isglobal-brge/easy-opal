@@ -39,7 +39,8 @@ def reset():
     console.print("Select which components you want to permanently delete.")
 
     delete_docker = Confirm.ask(
-        "[cyan]Delete all Docker containers, networks, and volumes?[/cyan]", default=True
+        "[cyan]Delete all Docker containers, networks, and volumes (incl. Opal app data)?[/cyan]",
+        default=True,
     )
     delete_configs = Confirm.ask(
         "[cyan]Delete configuration files (config.json, docker-compose.yml)?[/cyan]",
@@ -49,7 +50,7 @@ def reset():
         "[cyan]Delete SSL certificates directory?[/cyan]", default=False
     )
     delete_data = Confirm.ask(
-        "[cyan]Delete ALL persistent data (mongo, rock profiles)? This is highly destructive.[/cyan]",
+        "[cyan]Delete local data directories (mongo, rock profiles)? This is highly destructive.[/cyan]",
         default=False,
     )
 
@@ -59,13 +60,13 @@ def reset():
 
     console.print("\n[bold yellow]Summary of actions to be performed:[/bold yellow]")
     if delete_docker:
-        console.print("- Remove all Docker containers, networks, and volumes.")
+        console.print("- Remove all Docker containers, networks, and named volumes (Opal app data).")
     if delete_configs:
         console.print("- Delete config.json and docker-compose.yml.")
     if delete_certs:
         console.print("- Delete the SSL certificates directory.")
     if delete_data:
-        console.print("- Delete all persistent data (mongo, rock).")
+        console.print("- Delete local data directories (mongo, rock).")
 
     if not Confirm.ask(
         "\n[bold red]Are you sure you want to proceed with the selected actions?[/bold red]",
