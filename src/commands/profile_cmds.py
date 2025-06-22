@@ -4,7 +4,7 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 
 from core.config_manager import load_config, save_config
-from core.docker_manager import generate_compose_file, docker_up
+from core.docker_manager import generate_compose_file, docker_up, docker_restart, docker_down
 
 console = Console()
 
@@ -49,27 +49,28 @@ def add():
     generate_compose_file()
 
     if Confirm.ask("\n[cyan]Apply changes and restart the stack now?[/cyan]", default=True):
-        console.print("\n[cyan]Applying changes to the running stack...[/cyan]")
+        console.print("\n[cyan]Applying changes to the running stack... (This will stop and then restart all services)[/cyan]")
+        
+        # We need to manually do the restart steps to check for failure
+        docker_down()
         success = docker_up()
 
-        if success:
-            console.print("[green]Stack updated. The new profile container should be running.[/green]")
-        else:
+        if not success:
             console.print("[bold red]Failed to start the new profile's container. The image might not exist or another error occurred.[/bold red]")
             console.print("[yellow]Rolling back the configuration...[/yellow]")
             
-            # Remove the profile we just added
             config['profiles'].pop()
             save_config(config)
             console.print(f"[yellow]Profile '{name}' has been removed from the configuration.[/yellow]")
 
-            # Regenerate the compose file without the failed profile
             generate_compose_file()
             
-            # Run docker-up again to remove the orphaned service if it was created
             console.print("[cyan]Cleaning up the stack...[/cyan]")
             docker_up(remove_orphans=True)
             console.print("[green]Rollback complete.[/green]")
+        else:
+            console.print("[green]Stack restarted. The new profile container should be running.[/green]")
+            
     else:
         console.print("\n[yellow]Changes have been saved. Run 'python3 easy-opal.py up' to apply them later.[/yellow]")
 

@@ -14,6 +14,8 @@ services:
     restart: always
     depends_on:
       - mongo
+    volumes:
+      - ./data/opal:/srv
     environment:
       - MONGO_HOST=mongo
       - MONGO_PORT=27017
