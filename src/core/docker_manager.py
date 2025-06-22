@@ -120,24 +120,26 @@ def run_docker_compose(command: list):
     console.print(f"[bold cyan]Running command: {' '.join(full_command)}[/bold cyan]")
     
     try:
-        process = subprocess.Popen(full_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        for line in iter(process.stdout.readline, ''):
-            print(line, end='')
-        process.wait()
-        if process.returncode != 0:
-            console.print(f"[bold red]Docker-compose command failed with exit code {process.returncode}[/bold red]")
+        # By not capturing stdout/stderr, the subprocess will use the parent's terminal,
+        # giving the user the full interactive output from docker-compose.
+        result = subprocess.run(full_command, check=False)
+
+        if result.returncode != 0:
+            console.print(f"[bold red]Docker-compose command failed with exit code {result.returncode}[/bold red]")
+            return False
     except FileNotFoundError:
         console.print("[bold red]docker-compose command not found.[/bold red]")
         sys.exit(1)
     except Exception as e:
         console.print(f"[bold red]An error occurred: {e}[/bold red]")
-        sys.exit(1)
+        return False
+    return True
 
 def docker_up(remove_orphans=False):
     command = ["up", "-d"]
     if remove_orphans:
         command.append("--remove-orphans")
-    run_docker_compose(command)
+    return run_docker_compose(command)
 
 def docker_down():
     run_docker_compose(["down"])
