@@ -96,17 +96,41 @@ def setup(stack_name, hosts, port, password):
             config["hosts"] = hosts_list
 
         elif strategy == "manual":
-            cert_path = Prompt.ask("Enter the full path to your SSL certificate file (.crt)")
-            key_path = Prompt.ask("Enter the full path to your SSL private key file (.key)")
-            config["ssl"]["cert_path"] = cert_path
-            config["ssl"]["key_path"] = key_path
+            cert_path_str = Prompt.ask("Enter the full path to your SSL certificate file (.crt)")
+            if not cert_path_str.strip():
+                console.print("[bold red]Certificate path cannot be empty.[/bold red]")
+                return
+            if not Path(cert_path_str).is_file():
+                console.print(f"[bold red]File not found at: {cert_path_str}[/bold red]")
+                return
+
+            key_path_str = Prompt.ask("Enter the full path to your SSL private key file (.key)")
+            if not key_path_str.strip():
+                console.print("[bold red]Private key path cannot be empty.[/bold red]")
+                return
+            if not Path(key_path_str).is_file():
+                console.print(f"[bold red]File not found at: {key_path_str}[/bold red]")
+                return
+
             host = Prompt.ask("Enter the primary hostname for this certificate (e.g., my-opal.domain.com)")
+            if not host.strip():
+                console.print("[bold red]Hostname cannot be empty.[/bold red]")
+                return
+
+            config["ssl"]["cert_path"] = cert_path_str
+            config["ssl"]["key_path"] = key_path_str
             config["hosts"] = [host]
 
         elif strategy == "letsencrypt":
             console.print("[bold yellow]Let's Encrypt requires your server to be publicly accessible on port 80 and 443 with a valid DNS record.[/bold yellow]")
             email = Prompt.ask("Enter your email address for Let's Encrypt renewal notices")
+            if not email.strip():
+                console.print("[bold red]Email address cannot be empty.[/bold red]")
+                return
             domain = Prompt.ask("Enter your domain name (e.g., my-opal.domain.com)")
+            if not domain.strip():
+                console.print("[bold red]Domain name cannot be empty.[/bold red]")
+                return
             config["ssl"]["le_email"] = email
             config["hosts"] = [domain]
 
@@ -184,4 +208,4 @@ def setup(stack_name, hosts, port, password):
 
     console.print("\n[bold green]Setup is complete![/bold green]")
     console.print("You can now start the Opal stack by running:")
-    console.print("[bold]python3 easy-opal.py up[/bold]")
+    console.print("[bold yellow]python3 easy-opal.py up[/bold yellow]")

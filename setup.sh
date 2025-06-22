@@ -4,9 +4,39 @@
 VENV_NAME="venv"
 PYTHON_CMD="python3"
 
-# Function to install system dependencies
-install_system_deps() {
-    echo "Checking for system dependencies..."
+# --- Dependency Checks ---
+
+echo "--- Checking Prerequisites ---"
+
+# Check for Python 3
+if ! command -v $PYTHON_CMD &> /dev/null; then
+    echo "❌ [ERROR] '$PYTHON_CMD' could not be found."
+    echo "Please install Python 3 from https://www.python.org/downloads/ and try again."
+    exit 1
+fi
+echo "✅ Python 3 found."
+
+# Check for Docker
+if ! command -v docker &> /dev/null; then
+    echo "❌ [ERROR] 'docker' could not be found."
+    echo "Please install Docker Desktop from https://www.docker.com/products/docker-desktop and try again."
+    exit 1
+fi
+echo "✅ Docker found."
+
+# Check for Homebrew on macOS (for mkcert)
+if [[ "$(uname -s)" == "Darwin" ]] && ! command -v brew &> /dev/null; then
+    echo "❌ [ERROR] 'brew' (Homebrew) is not installed."
+    echo "Please install it from https://brew.sh/ and try again."
+    exit 1
+fi
+echo "--------------------------"
+echo ""
+
+
+# Function to install mkcert
+install_mkcert() {
+    echo "Checking for mkcert..."
     OS="$(uname -s)"
 
     case "${OS}" in
@@ -15,10 +45,10 @@ install_system_deps() {
             if ! command -v mkcert &> /dev/null; then
                 if command -v apt-get &> /dev/null; then
                     echo "mkcert not found. Attempting to install with apt-get..."
-                    sudo apt-get update && sudo apt-get install -y mkcert
+                    sudo apt-get update && sudo apt-get install -y libnss3-tools mkcert
                 elif command -v dnf &> /dev/null; then
                     echo "mkcert not found. Attempting to install with dnf..."
-                    sudo dnf install -y mkcert
+                    sudo dnf install -y nss-tools mkcert
                 else
                     echo "Could not determine package manager. Please install 'mkcert' manually."
                     exit 1
@@ -27,10 +57,6 @@ install_system_deps() {
             ;;
         Darwin*)
             echo "Detected macOS."
-            if ! command -v brew &> /dev/null; then
-                echo "'brew' (Homebrew) is not installed. Please install it from https://brew.sh/"
-                exit 1
-            fi
             if ! command -v mkcert &> /dev/null; then
                 echo "mkcert not found. Installing with Homebrew..."
                 brew install mkcert
@@ -44,28 +70,22 @@ install_system_deps() {
     
     # After installing mkcert, ensure its local CA is trusted.
     if command -v mkcert &> /dev/null; then
-        echo "Ensuring the mkcert local CA is installed in your trust store..."
+        echo "✅ mkcert is installed. Ensuring local CA is trusted..."
         # This command might prompt for the user's password.
         mkcert -install
     else
-        echo "[ERROR] mkcert installation failed. Please try installing it manually."
+        echo "❌ [ERROR] mkcert installation failed. Please try installing it manually."
         exit 1
     fi
 }
 
 # --- Main script ---
 
-# 1. Install system dependencies
-install_system_deps
+# 1. Install mkcert
+install_mkcert
 
-# 2. Check for python3
-if ! command -v $PYTHON_CMD &> /dev/null
-then
-    echo "$PYTHON_CMD could not be found. Please install Python 3."
-    exit 1
-fi
-
-# 3. Create virtual environment
+# 2. Create virtual environment
+echo -e "\n--- Setting up Python Environment ---"
 if [ ! -d "$VENV_NAME" ]; then
     echo "Creating virtual environment..."
     $PYTHON_CMD -m venv $VENV_NAME
@@ -73,12 +93,13 @@ else
     echo "Virtual environment already exists."
 fi
 
-# 4. Activate virtual environment and install python dependencies
-echo "Installing Python dependencies..."
+# 3. Activate virtual environment and install python dependencies
+echo "Installing Python dependencies from requirements.txt..."
 source $VENV_NAME/bin/activate
 pip install -r requirements.txt
 
-echo -e "\nSetup complete. To activate the virtual environment, run:"
+echo -e "\n✅ Setup complete! The environment is ready."
+echo "To activate the virtual environment in your shell, run:"
 echo "source $VENV_NAME/bin/activate"
-echo "Then you can run the application with:"
+echo "Then, get started by running the setup wizard:"
 echo "python3 easy-opal.py setup" 
