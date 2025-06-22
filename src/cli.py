@@ -6,6 +6,7 @@ from commands.lifecycle_cmds import up, down, restart, reset, status
 from commands.profile_cmds import profile
 from commands.config_cmds import config
 from commands.cert_cmds import cert
+from commands.update_cmd import update
 
 
 console = Console()
@@ -27,6 +28,7 @@ main.add_command(status)
 main.add_command(profile)
 main.add_command(config)
 main.add_command(cert)
+main.add_command(update)
 
 
 if __name__ == '__main__':

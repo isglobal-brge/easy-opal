@@ -5,8 +5,11 @@ A command-line tool to easily set up and manage OBiBa Opal environments using Do
 ## Prerequisites
 
 Before you begin, ensure you have the following installed on your system:
-- **Docker**: Required to run the Opal and Rock containers. [Install Docker](https://docs.docker.com/get-docker/).
-- **mkcert**: Required for creating locally-trusted SSL certificates for development. The setup script will attempt to install this for you.
+- **Docker**: Required to run the Opal and Rock containers.
+- **Git**: Required for the `update` command.
+- **mkcert**: Required for creating locally-trusted SSL certificates for development.
+
+The setup script will attempt to install these for you if they are not found.
 
 ## Installation
 
@@ -110,6 +113,9 @@ The wizard will guide you through:
   python3 easy-opal.py cert regenerate
   ```
 
----
-Created by David Sarrat González
-GitHub: [davidsarratgonzalez/easy-opal](https://github.com/davidsarratgonzalez/easy-opal) 
+### 7. Updating the Tool
+
+- **Check for and apply updates**: This command will check the official repository for new versions of `easy-opal` and guide you through the update process.
+  ```bash
+  python3 easy-opal.py update
+  ```

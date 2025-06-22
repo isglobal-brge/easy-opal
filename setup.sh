@@ -24,6 +24,24 @@ if ! command -v docker &> /dev/null; then
 fi
 echo "✅ Docker found."
 
+# Check for Git
+if ! command -v git &> /dev/null; then
+    echo "❌ [ERROR] 'git' could not be found."
+    echo "Attempting to install git..."
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        # On macOS, git is often installed via Xcode Command Line Tools, which brew can trigger.
+        brew install git
+    elif command -v apt-get &> /dev/null; then
+        sudo apt-get update && sudo apt-get install -y git
+    elif command -v dnf &> /dev/null; then
+        sudo dnf install -y git
+    else
+        echo "Could not install git automatically. Please install it manually."
+        exit 1
+    fi
+fi
+echo "✅ Git found."
+
 # Check for Homebrew on macOS (for mkcert)
 if [[ "$(uname -s)" == "Darwin" ]] && ! command -v brew &> /dev/null; then
     echo "❌ [ERROR] 'brew' (Homebrew) is not installed."
