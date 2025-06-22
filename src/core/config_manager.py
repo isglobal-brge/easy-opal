@@ -5,6 +5,7 @@ from typing import Dict, Any, List
 CONFIG_FILE = Path("config.json")
 BACKUPS_DIR = Path("backups")
 DATA_DIR = Path("data")
+MONGO_DATA_DIR = DATA_DIR / "mongo"
 NGINX_DIR = DATA_DIR / "nginx"
 CERTS_DIR = NGINX_DIR / "certs"
 NGINX_CONF_DIR = NGINX_DIR / "conf"
@@ -54,6 +55,7 @@ def ensure_directories_exist():
     """Ensures that all necessary data and backup directories exist."""
     BACKUPS_DIR.mkdir(exist_ok=True)
     DATA_DIR.mkdir(exist_ok=True)
+    MONGO_DATA_DIR.mkdir(exist_ok=True)
     NGINX_DIR.mkdir(exist_ok=True)
     CERTS_DIR.mkdir(exist_ok=True)
     NGINX_CONF_DIR.mkdir(exist_ok=True) 

@@ -4,7 +4,7 @@ services:
     container_name: ${PROJECT_NAME}-mongo
     restart: always
     volumes:
-      - opal_mongo_data:/data/db
+      - ./data/mongo:/data/db
     networks:
       - opal-net
 

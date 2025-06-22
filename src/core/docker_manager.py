@@ -141,6 +141,16 @@ def docker_up(remove_orphans=False):
         command.append("--remove-orphans")
     return run_docker_compose(command)
 
+def docker_restart():
+    """Stops and then starts the stack to ensure a clean restart."""
+    console.print("[cyan]Stopping the stack...[/cyan]")
+    if not run_docker_compose(["down"]):
+        console.print("[bold red]Failed to stop the stack. Aborting restart.[/bold red]")
+        return
+    
+    console.print("\n[cyan]Starting the stack...[/cyan]")
+    run_docker_compose(["up", "-d"])
+
 def docker_down():
     run_docker_compose(["down"])
 
