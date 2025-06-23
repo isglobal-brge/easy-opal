@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 from rich.console import Console
 
-from core.config_manager import CERTS_DIR, load_config
+from src.core.config_manager import CERTS_DIR, load_config
 
 console = Console()
 

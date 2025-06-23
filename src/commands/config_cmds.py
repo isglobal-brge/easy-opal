@@ -3,8 +3,8 @@ import json
 from rich.console import Console
 from rich.prompt import Prompt, IntPrompt
 
-from core.config_manager import load_config, save_config
-from core.docker_manager import generate_compose_file
+from src.core.config_manager import load_config, save_config
+from src.core.docker_manager import generate_compose_file
 
 console = Console()
 

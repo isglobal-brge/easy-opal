@@ -1,16 +1,13 @@
 #!/bin/bash
-# A simple script to set up the virtual environment and install dependencies.
-
-VENV_NAME="venv"
-PYTHON_CMD="python3"
+# A simple script to set up the environment and install dependencies.
 
 # --- Dependency Checks ---
 
 echo "--- Checking Prerequisites ---"
 
 # Check for Python 3
-if ! command -v $PYTHON_CMD &> /dev/null; then
-    echo "❌ [ERROR] '$PYTHON_CMD' could not be found."
+if ! command -v python3 &> /dev/null; then
+    echo "❌ [ERROR] 'python3' could not be found."
     echo "Please install Python 3 from https://www.python.org/downloads/ and try again."
     exit 1
 fi
@@ -102,22 +99,24 @@ install_mkcert() {
 # 1. Install mkcert
 install_mkcert
 
-# 2. Create virtual environment
-echo -e "\n--- Setting up Python Environment ---"
-if [ ! -d "$VENV_NAME" ]; then
-    echo "Creating virtual environment..."
-    $PYTHON_CMD -m venv $VENV_NAME
-else
-    echo "Virtual environment already exists."
+# 2. Install Poetry and dependencies
+echo -e "\n--- Setting up Python Environment with Poetry ---"
+if ! command -v poetry &> /dev/null; then
+    echo "Poetry not found. Installing Poetry..."
+    curl -sSL https://install.python-poetry.org | python3 -
+    # Add poetry to the path for the current session
+    export PATH="$HOME/.local/bin:$PATH"
+    echo "Poetry installed. You may need to restart your shell for the PATH change to take effect globally."
 fi
 
-# 3. Activate virtual environment and install python dependencies
-echo "Installing Python dependencies from requirements.txt..."
-source $VENV_NAME/bin/activate
-pip install -r requirements.txt
+echo "✅ Poetry is available."
+echo "Installing project dependencies with Poetry... (This may take a moment)"
+poetry install
+
+# Make the wrapper script executable
+chmod +x easy-opal
 
 echo -e "\n✅ Setup complete! The environment is ready."
-echo "To activate the virtual environment in your shell, run:"
-echo "source $VENV_NAME/bin/activate"
-echo "Then, get started by running the setup wizard:"
-echo "python3 easy-opal.py setup" 
+echo "You can now run the tool using the './easy-opal' wrapper script."
+echo "For example, to start the setup wizard, run:"
+echo "[bold yellow]./easy-opal setup[/bold yellow]" 

@@ -5,15 +5,16 @@ A command-line tool to easily set up and manage OBiBa Opal environments using Do
 ## Prerequisites
 
 Before you begin, ensure you have the following installed on your system:
+- **Python 3.8+**
 - **Docker**: Required to run the Opal and Rock containers.
 - **Git**: Required for the `update` command.
 - **mkcert**: Required for creating locally-trusted SSL certificates for development.
 
-The setup script will attempt to install these for you if they are not found.
+The setup script will check for these and guide you if they are missing.
 
 ## Installation
 
-The installation is handled by a single setup script.
+The installation process is streamlined using Poetry for robust dependency and environment management.
 
 1.  **Clone the repository**:
     ```bash
@@ -21,132 +22,110 @@ The installation is handled by a single setup script.
     cd easy-opal
     ```
 
-2.  **Run the setup script**:
+2.  **Run the main setup script**:
     Make the script executable and run it.
     ```bash
     chmod +x setup.sh
     ./setup.sh
     ```
-    This script will:
-    - Detect your OS and install `mkcert` if it's not present.
-    - Run `mkcert -install` to create a local Certificate Authority (CA).
-    - Create a Python virtual environment in a `venv` directory.
-    - Install all the necessary Python packages from `requirements.txt`.
+    This script will handle everything:
+    - Check for system-level dependencies like Docker and Git.
+    - Install **Poetry** (the Python package manager) if it's not present.
+    - Use Poetry to automatically create a virtual environment and install all Python dependencies.
+    - Install `mkcert` and set up its local Certificate Authority (CA).
+    
+    > **Note:** After the setup script finishes, you may need to **open a new terminal** or reload your shell's configuration (e.g., `source ~/.zshrc`) for the `poetry` command to become available.
 
 ## Usage
 
-All commands should be run from the root of the project directory.
+All commands should be run from the root of the project directory using the `./easy-opal` wrapper script.
 
-### 1. Activate the Environment
+### 1. Initial Setup
 
-Before running the application, activate the Python virtual environment:
+To configure your Opal stack for the first time, run the interactive setup wizard:
 ```bash
-source venv/bin/activate
+./easy-opal setup
+```
+The wizard will guide you through the rest. For non-interactive setups, you can use flags:
+```bash
+./easy-opal setup --stack-name my-opal --host localhost --ssl-strategy "self-signed" --yes
 ```
 
-### 2. Initial Setup
-
-To configure your Opal stack for the first time, you can run the interactive setup wizard:
-```bash
-python3 easy-opal.py setup
-```
-Alternatively, you can provide all setup options as flags for non-interactive or scripted setups:
-```bash
-# Example for a self-signed certificate
-python3 easy-opal.py setup \
-  --stack-name my-opal \
-  --host localhost --host 192.168.1.100 \
-  --port 443 \
-  --password "supersecret" \
-  --ssl-strategy "self-signed"
-
-# Example for a manual certificate
-python3 easy-opal.py setup \
-  --stack-name my-opal \
-  --host my-opal.domain.com \
-  --port 443 \
-  --password "supersecret" \
-  --ssl-strategy "manual" \
-  --ssl-cert-path /path/to/cert.crt \
-  --ssl-key-path /path/to/key.key
-```
-
-### 3. Stack Lifecycle Commands
+### 2. Stack Lifecycle Commands
 
 - **Start the stack**:
   ```bash
-  python3 easy-opal.py up
+  ./easy-opal up
   ```
 - **Stop the stack**:
   ```bash
-  python3 easy-opal.py down
+  ./easy-opal down
   ```
-- **Check the status of the services**:
+- **Restart the stack**:
   ```bash
-  python3 easy-opal.py status
+  ./easy-opal restart
   ```
-- **Factory Reset**: Stop all services and remove data. Use `--help` to see all options.
+- **Check the status**:
   ```bash
-  # Interactive wizard
-  python3 easy-opal.py reset
-
-  # Non-interactive: Delete everything and bypass confirmation
-  python3 easy-opal.py reset --all --yes
+  ./easy-opal status
   ```
-
-### 4. Managing Rock Profiles
-
-- **Add a new profile**:
+- **Factory Reset**: An interactive wizard to selectively delete components.
   ```bash
   # Interactive wizard
-  python3 easy-opal.py profile add
+  ./easy-opal reset
 
-  # Non-interactive, with automatic restart
-  python3 easy-opal.py profile add \
-    --repository datashield \
-    --image rock-mediation \
-    --tag latest \
-    --name rock-mediation-beta \
-    --yes
+  # Non-interactive: Delete everything
+  ./easy-opal reset --all --yes
+  ```
+
+### 3. Managing Rock Profiles
+
+- **Add a profile**:
+  ```bash
+  # Interactive wizard
+  ./easy-opal profile add
+
+  # Non-interactive
+  ./easy-opal profile add --repository datashield --image rock-mediation --name rock-beta --yes
   ```
 - **Remove a profile**:
   ```bash
   # Interactive wizard
-  python3 easy-opal.py profile remove
+  ./easy-opal profile remove
 
-  # Non-interactive, with automatic removal
-  python3 easy-opal.py profile remove rock-mediation-beta --yes
+  # Non-interactive
+  ./easy-opal profile remove rock-beta --yes
   ```
-- **List configured profiles**:
+- **List profiles**:
   ```bash
-  python3 easy-opal.py profile list
-  ```
-
-### 5. Configuration Management
-
-- **Show current configuration**:
-  ```bash
-  python3 easy-opal.py config show
-  ```
-- **Change the Opal admin password**:
-  ```bash
-  python3 easy-opal.py config change-password "new_password"
-  ```
-- **Change the external port**:
-  ```bash
-  python3 easy-opal.py config change-port 8443
+  ./easy-opal profile list
   ```
 
-### 6. Certificate Management
+### 4. Configuration Management
 
-- **Regenerate SSL certificates**: This will regenerate your certificate based on the strategy defined in your configuration.
+- **Show configuration**:
   ```bash
-  python3 easy-opal.py cert regenerate
+  ./easy-opal config show
+  ```
+- **Change password**:
+  ```bash
+  ./easy-opal config change-password "new-secret"
+  ```
+- **Change port**:
+  ```bash
+  ./easy-opal config change-port 8443
   ```
 
-### 7. Updating the Tool
+### 5. Certificate Management
 
-- **Check for and apply updates**: This command will check the official repository for new versions of `easy-opal` and guide you through the update process.
+- **Regenerate certificates**:
   ```bash
-  python3 easy-opal.py update
+  ./easy-opal cert regenerate
+  ```
+
+### 6. Updating the Tool
+
+- **Check for and apply updates**:
+  ```bash
+  ./easy-opal update
   ```

@@ -2,7 +2,7 @@ import click
 import shutil
 from rich.console import Console
 from rich.prompt import Confirm
-from core.docker_manager import (
+from src.core.docker_manager import (
     docker_up,
     docker_down,
     docker_restart,
@@ -10,7 +10,7 @@ from core.docker_manager import (
     docker_status,
     DOCKER_COMPOSE_PATH,
 )
-from core.config_manager import CONFIG_FILE, CERTS_DIR, DATA_DIR
+from src.core.config_manager import CONFIG_FILE, CERTS_DIR, DATA_DIR
 
 console = Console()
 

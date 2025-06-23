@@ -8,7 +8,7 @@ from typing import Dict, Any
 from ruamel.yaml import YAML
 from rich.console import Console
 
-from core.config_manager import load_config, BACKUPS_DIR, DATA_DIR
+from src.core.config_manager import load_config, BACKUPS_DIR, DATA_DIR
 
 console = Console()
 COMPOSE_TEMPLATE_PATH = Path("src/templates/docker-compose.yml.tpl")

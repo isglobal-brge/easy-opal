@@ -5,7 +5,7 @@ from rich.console import Console
 from rich.prompt import Prompt, IntPrompt, Confirm
 from pathlib import Path
 
-from core.config_manager import (
+from src.core.config_manager import (
     save_config,
     get_default_config,
     ensure_directories_exist,
@@ -13,9 +13,9 @@ from core.config_manager import (
     CERTS_DIR,
     DATA_DIR,
 )
-from core.ssl_manager import generate_cert_with_mkcert, check_mkcert_installed
-from core.nginx_manager import generate_nginx_config
-from core.docker_manager import generate_compose_file, check_docker_installed, run_docker_compose
+from src.core.ssl_manager import generate_cert_with_mkcert, check_mkcert_installed
+from src.core.nginx_manager import generate_nginx_config
+from src.core.docker_manager import generate_compose_file, check_docker_installed, run_docker_compose
 
 console = Console()
 

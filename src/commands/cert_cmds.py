@@ -3,9 +3,9 @@ import shutil
 from pathlib import Path
 from rich.console import Console
 
-from core.config_manager import load_config, save_config, CERTS_DIR
-from core.ssl_manager import generate_cert_with_mkcert
-from core.docker_manager import run_docker_compose
+from src.core.config_manager import load_config, save_config, CERTS_DIR
+from src.core.ssl_manager import generate_cert_with_mkcert
+from src.core.docker_manager import run_docker_compose
 
 console = Console()
 

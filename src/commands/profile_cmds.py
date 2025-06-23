@@ -3,8 +3,8 @@ from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 
-from core.config_manager import load_config, save_config
-from core.docker_manager import generate_compose_file, docker_up, docker_restart, docker_down
+from src.core.config_manager import load_config, save_config
+from src.core.docker_manager import generate_compose_file, docker_up, docker_restart, docker_down
 
 console = Console()
 

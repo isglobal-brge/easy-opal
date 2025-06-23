@@ -1,12 +1,12 @@
 import click
 from rich.console import Console
 
-from commands.setup_cmd import setup
-from commands.lifecycle_cmds import up, down, restart, reset, status
-from commands.profile_cmds import profile
-from commands.config_cmds import config
-from commands.cert_cmds import cert
-from commands.update_cmd import update
+from src.commands.setup_cmd import setup
+from src.commands.lifecycle_cmds import up, down, restart, reset, status
+from src.commands.profile_cmds import profile
+from src.commands.config_cmds import config
+from src.commands.cert_cmds import cert
+from src.commands.update_cmd import update
 
 
 console = Console()

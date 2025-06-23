@@ -1,7 +1,7 @@
 from pathlib import Path
 from rich.console import Console
 
-from core.config_manager import NGINX_CONF_DIR, load_config
+from src.core.config_manager import NGINX_CONF_DIR, load_config
 
 console = Console()
 TEMPLATE_PATH = Path("src/templates/nginx.conf.tpl")

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#
+# This script is a wrapper that executes the easy-opal command inside the
+# project's poetry-managed virtual environment. It allows users to run the
+# tool without having to manually activate the virtual environment.
+
+# Ensure the script is run from the project root directory
+cd "$(dirname "$0")"
+
+# Check if poetry is installed
+if ! command -v poetry &> /dev/null; then
+    echo "❌ [ERROR] 'poetry' could not be found."
+    echo "Please run the setup script first to install it:"
+    echo "./setup.sh"
+    exit 1
+fi
+
+# Execute the command using 'poetry run', passing all arguments
+poetry run easy-opal "$@" 
