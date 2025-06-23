@@ -4,7 +4,7 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 
 from src.core.config_manager import load_config, save_config, ensure_password_is_set, create_snapshot
-from src.core.docker_manager import generate_compose_file, docker_up, docker_restart, docker_down
+from src.core.docker_manager import generate_compose_file, docker_up, docker_restart, docker_down, pull_docker_image
 
 console = Console()
 
@@ -43,11 +43,24 @@ def add(repository, image, tag, name, yes):
         tag_val = tag or "latest"
         name_val = name
 
-    full_image_name = f"{repo_val}/{image_val}"
+    # Handle cases where user provides the full repo/image string in the --image flag
+    if "/" in image_val and not repo_val:
+        full_image_name = image_val
+    elif "/" in image_val and repo_val:
+        # If both are provided, let's assume the --image flag is the correct full name
+        console.print(f"[dim]Warning: Both --repository and a full image path were provided. Using '{image_val}' as the full image name.[/dim]")
+        full_image_name = image_val
+    else:
+        full_image_name = f"{repo_val}/{image_val}"
 
     # Check for duplicate profile names
     if any(p["name"] == name_val for p in config["profiles"]):
         console.print(f"[bold red]A profile with the service name '{name_val}' already exists.[/bold red]")
+        return
+
+    # Before adding to config, try to pull the image to validate it.
+    if not pull_docker_image(f"{full_image_name}:{tag_val}"):
+        console.print(f"[bold red]Aborting profile add due to invalid image.[/bold red]")
         return
 
     new_profile = {"name": name_val, "image": full_image_name, "tag": tag_val}
@@ -57,28 +70,14 @@ def add(repository, image, tag, name, yes):
     save_config(config)
     generate_compose_file()
 
-    console.print(f"\n[green]Profile '{name_val}' with image '{full_image_name}:{tag_val}' has been added to config.[/green]")
+    console.print(f"\n[green]Profile '{name_val}' has been added to config.[/green]")
 
     apply_changes = yes or (is_interactive and Confirm.ask("\n[cyan]Apply changes and restart the stack now by running 'up'?[/cyan]", default=True))
     
     if apply_changes:
         console.print("\n[cyan]Applying changes to the running stack...[/cyan]")
-        
-        # docker_restart handles the down/up sequence
-        success = docker_restart()
-
-        if not success:
-            console.print("[bold red]Failed to start the new profile. The image might not exist.[/bold red]")
-            console.print("[yellow]Rolling back configuration...[/yellow]")
-            config["profiles"].pop()
-            save_config(config)
-            generate_compose_file()
-            console.print("[cyan]Cleaning up the stack...[/cyan]")
-            docker_up(remove_orphans=True)
-            console.print("[green]Rollback complete.[/green]")
-        else:
-            console.print("[green]Stack restarted. The new profile container should be running.[/green]")
-            
+        docker_restart()
+        console.print("[green]Stack restarted. The new profile container should be running.[/green]")
     else:
         console.print("\n[yellow]Changes have been saved. Run './easy-opal up' to apply them later.[/yellow]")
 

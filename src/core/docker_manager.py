@@ -157,4 +157,24 @@ def docker_reset(project_name: str = None):
     return run_docker_compose(["down", "-v"], project_name=project_name)
 
 def docker_status(project_name: str = None):
-    return run_docker_compose(["ps"], project_name=project_name) 
+    return run_docker_compose(["ps"], project_name=project_name)
+
+def pull_docker_image(image_name: str):
+    """Pulls a Docker image and returns True on success, False on failure."""
+    console.print(f"[cyan]Attempting to pull image: {image_name}...[/cyan]")
+    try:
+        # Use a more specific command to just pull an image.
+        result = subprocess.run(["docker", "image", "pull", image_name], check=False, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            console.print(f"[bold red]Failed to pull image '{image_name}'.[/bold red]")
+            # Show docker's error message for more context
+            console.print(f"[dim]{result.stderr}[/dim]")
+            return False
+            
+    except Exception as e:
+        console.print(f"[bold red]An unexpected error occurred while pulling the image: {e}[/bold red]")
+        return False
+        
+    console.print(f"[green]Successfully pulled image: {image_name}[/green]")
+    return True 
