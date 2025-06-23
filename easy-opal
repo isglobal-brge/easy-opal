@@ -7,13 +7,17 @@
 # Ensure the script is run from the project root directory
 cd "$(dirname "$0")"
 
-# Check if poetry is installed
-if ! command -v poetry &> /dev/null; then
-    echo "❌ [ERROR] 'poetry' could not be found."
-    echo "Please run the setup script first to install it:"
+VENV_PATH=".venv"
+
+# Check if the project's virtual environment exists, created by './setup'
+if [ ! -d "$VENV_PATH" ]; then
+    echo "❌ [ERROR] Project virtual environment not found in '$VENV_PATH'."
+    echo "This is created by the setup script. Please run it first:"
     echo "./setup"
     exit 1
 fi
 
-# Execute the command using 'poetry run', passing all arguments
-poetry run easy-opal "$@" 
+# Activate the virtual environment and execute the python script.
+# This is more robust than 'poetry run' when an external venv is also active.
+# By calling the python executable directly, we avoid any 'source' issues.
+"$VENV_PATH/bin/python" -m src.cli "$@" 

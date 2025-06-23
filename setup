@@ -110,8 +110,15 @@ if ! command -v poetry &> /dev/null; then
 fi
 
 echo "✅ Poetry is available."
+
 echo "Installing project dependencies with Poetry... (This may take a moment)"
-poetry install
+# The poetry.toml file now handles all virtualenv configuration.
+# We just need to run install within an isolated subshell to avoid
+# conflicts with any externally activated virtual environments.
+(
+  unset VIRTUAL_ENV
+  poetry install --no-ansi
+)
 
 # Make the wrapper script executable
 chmod +x easy-opal
