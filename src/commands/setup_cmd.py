@@ -225,4 +225,4 @@ def setup(stack_name, hosts, port, password, ssl_strategy, ssl_cert_path, ssl_ke
 
     console.print("\n[bold green]Setup is complete![/bold green]")
     console.print("You can now start the Opal stack by running:")
-    console.print("[bold yellow]python3 easy-opal.py up[/bold yellow]")
+    console.print("[bold yellow]./easy-opal.py up[/bold yellow]")

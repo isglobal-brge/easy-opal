@@ -76,7 +76,7 @@ def add(repository, image, tag, name, yes):
             console.print("[green]Stack restarted. The new profile container should be running.[/green]")
             
     else:
-        console.print("\n[yellow]Changes have been saved. Run 'python3 easy-opal.py up' to apply them later.[/yellow]")
+        console.print("\n[yellow]Changes have been saved. Run './easy-opal.py up' to apply them later.[/yellow]")
 
 @profile.command()
 @click.argument("name", required=False)
@@ -132,7 +132,7 @@ def remove(name, yes):
             "[green]Stack updated. The profile's container has been removed.[/green]"
         )
     else:
-        console.print("\n[yellow]Changes have been saved. Run 'python3 easy-opal.py up' to apply them later.[/yellow]")
+        console.print("\n[yellow]Changes have been saved. Run './easy-opal.py up' to apply them later.[/yellow]")
 
 
 @profile.command(name="list")
