@@ -8,7 +8,7 @@ from typing import Dict, Any
 from ruamel.yaml import YAML
 from rich.console import Console
 
-from src.core.config_manager import load_config, BACKUPS_DIR, DATA_DIR
+from src.core.config_manager import load_config, BACKUPS_DIR, DATA_DIR, create_snapshot
 
 console = Console()
 COMPOSE_TEMPLATE_PATH = Path("src/templates/docker-compose.yml.tpl")
@@ -28,15 +28,6 @@ def check_docker_installed():
         return False
 
 
-def backup_compose_file():
-    """Creates a backup of the existing docker-compose.yml file."""
-    if DOCKER_COMPOSE_PATH.exists():
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_file = BACKUPS_DIR / f"docker-compose.yml.{timestamp}"
-        shutil.copy(DOCKER_COMPOSE_PATH, backup_file)
-        console.print(f"[yellow]Backed up existing docker-compose.yml to {backup_file}[/yellow]")
-
-
 def generate_compose_file():
     """
     Generates the docker-compose.yml file from the template and config.
@@ -45,8 +36,6 @@ def generate_compose_file():
     if not COMPOSE_TEMPLATE_PATH.exists():
         console.print(f"[bold red]Docker Compose template not found at {COMPOSE_TEMPLATE_PATH}[/bold red]")
         sys.exit(1)
-
-    backup_compose_file()
 
     console.print("[cyan]Generating docker-compose.yml...[/cyan]")
 
@@ -103,6 +92,8 @@ def generate_compose_file():
 
     with open(DOCKER_COMPOSE_PATH, "w") as f:
         yaml.dump(compose_data, f)
+
+    create_snapshot("Configuration updated")
 
     console.print(f"[green]docker-compose.yml generated successfully.[/green]")
 

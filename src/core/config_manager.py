@@ -1,6 +1,8 @@
 import json
+import shutil
 from pathlib import Path
 from typing import Dict, Any, List
+from datetime import datetime
 from rich.console import Console
 from rich.prompt import Prompt
 
@@ -11,9 +13,29 @@ MONGO_DATA_DIR = DATA_DIR / "mongo"
 NGINX_DIR = DATA_DIR / "nginx"
 CERTS_DIR = NGINX_DIR / "certs"
 NGINX_CONF_DIR = NGINX_DIR / "conf"
+DOCKER_COMPOSE_PATH = Path("docker-compose.yml")
 
 console = Console()
 ENV_FILE = Path.cwd() / ".env"
+
+def create_snapshot(reason: str = "Configuration change"):
+    """Creates a timestamped snapshot of critical configuration files."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    snapshot_dir = BACKUPS_DIR / f"{timestamp}"
+    
+    try:
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        
+        if CONFIG_FILE.exists():
+            shutil.copy(CONFIG_FILE, snapshot_dir / "config.json")
+        
+        if DOCKER_COMPOSE_PATH.exists():
+            shutil.copy(DOCKER_COMPOSE_PATH, snapshot_dir / "docker-compose.yml")
+            
+        console.print(f"[dim]Created configuration snapshot at [cyan]{snapshot_dir}[/cyan] due to: {reason}[/dim]")
+        
+    except Exception as e:
+        console.print(f"[bold red]Failed to create configuration snapshot: {e}[/bold red]")
 
 def get_default_config() -> Dict[str, Any]:
     """Returns the default configuration dictionary."""

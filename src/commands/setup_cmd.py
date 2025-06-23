@@ -13,6 +13,7 @@ from src.core.config_manager import (
     CERTS_DIR,
     DATA_DIR,
     ENV_FILE,
+    create_snapshot,
 )
 from src.core.ssl_manager import generate_cert_with_mkcert, check_mkcert_installed
 from src.core.nginx_manager import generate_nginx_config
@@ -208,15 +209,11 @@ def setup(stack_name, hosts, port, password, ssl_strategy, ssl_cert_path, ssl_ke
     
     # 1. Create necessary directories
     ensure_directories_exist()
-    le_path = DATA_DIR / "letsencrypt"
-    le_path.mkdir(exist_ok=True)
-    (le_path / "www").mkdir(exist_ok=True)
-
 
     # First, save the configuration so manager functions can read it.
     save_config(config)
     console.print(f"[green]Configuration saved to {CONFIG_FILE}[/green]")
-
+    
     # 2. Generate initial NGINX config and Docker Compose file
     generate_nginx_config()
     generate_compose_file()
