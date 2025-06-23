@@ -224,6 +224,7 @@ def setup(stack_name, hosts, port, password, ssl_strategy, ssl_cert_path, ssl_ke
     console.print(f"[green]Configuration saved to {CONFIG_FILE}[/green]")
     
     # 2. Generate initial NGINX config and Docker Compose file
+    create_snapshot("Initial setup configuration")
     generate_nginx_config()
     generate_compose_file()
     console.print("[green]Initial docker-compose.yml and nginx.conf generated.[/green]")

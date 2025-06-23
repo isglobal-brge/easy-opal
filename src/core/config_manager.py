@@ -26,14 +26,20 @@ def create_snapshot(reason: str = "Configuration change"):
     try:
         snapshot_dir.mkdir(parents=True, exist_ok=True)
         
-        if CONFIG_FILE.exists():
-            shutil.copy(CONFIG_FILE, snapshot_dir / "config.json")
+        files_to_back_up = [CONFIG_FILE, DOCKER_COMPOSE_PATH]
+        found_any_files = False
+
+        for file_path in files_to_back_up:
+            if file_path.exists():
+                shutil.copy(file_path, snapshot_dir / file_path.name)
+                found_any_files = True
         
-        if DOCKER_COMPOSE_PATH.exists():
-            shutil.copy(DOCKER_COMPOSE_PATH, snapshot_dir / "docker-compose.yml")
+        if found_any_files:
+            console.print(f"[dim]Created configuration snapshot at [cyan]{snapshot_dir}[/cyan] due to: {reason}[/dim]")
+        else:
+            console.print("[yellow]No configuration files found to snapshot.[/yellow]")
+            snapshot_dir.rmdir()
             
-        console.print(f"[dim]Created configuration snapshot at [cyan]{snapshot_dir}[/cyan] due to: {reason}[/dim]")
-        
     except Exception as e:
         console.print(f"[bold red]Failed to create configuration snapshot: {e}[/bold red]")
 

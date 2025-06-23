@@ -3,7 +3,7 @@ from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 
-from src.core.config_manager import load_config, save_config, ensure_password_is_set
+from src.core.config_manager import load_config, save_config, ensure_password_is_set, create_snapshot
 from src.core.docker_manager import generate_compose_file, docker_up, docker_restart, docker_down
 
 console = Console()
@@ -14,7 +14,7 @@ def profile():
     pass
 
 @profile.command()
-@click.option("--repository", help="The Docker Hub repository (e.g., datashield).")
+@click.option("--repository", help="The Docker Hub repository (e.g., datashield). Default: datashield.")
 @click.option("--image", help="The image name (e.g., rock-base).")
 @click.option("--tag", help="The image tag (default: latest).")
 @click.option("--name", help="The service name for this profile.")
@@ -23,24 +23,27 @@ def add(repository, image, tag, name, yes):
     """Adds a new Rock profile to the configuration."""
     if not ensure_password_is_set(): return
     config = load_config()
-    is_interactive = not all([repository, image, name])
+    # Non-interactive mode is active if the essential flags are provided.
+    is_interactive = not all([image, name])
 
     if is_interactive:
         console.print("\n[cyan]Adding a new Rock profile (interactive)...[/cyan]")
-        repository = Prompt.ask("Enter the Docker Hub repository", default="datashield")
-        image = Prompt.ask("Enter the image name (e.g., rock-base)")
-        if not image.strip():
+        repo_val = Prompt.ask("Enter the Docker Hub repository", default="datashield")
+        image_val = Prompt.ask("Enter the image name (e.g., rock-base)")
+        if not image_val.strip():
             console.print("[bold red]Image name cannot be empty.[/bold red]")
             return
         tag_val = Prompt.ask("Enter the image tag", default="latest")
-        default_name = f"rock-{image.replace('rock-', '')}"
+        default_name = f"rock-{image_val.replace('rock-', '')}"
         name_val = Prompt.ask("Enter a service name for this profile", default=default_name)
     else:
         console.print("\n[cyan]Adding a new Rock profile (non-interactive)...[/cyan]")
+        repo_val = repository or "datashield"
+        image_val = image
         tag_val = tag or "latest"
         name_val = name
 
-    full_image_name = f"{repository}/{image}"
+    full_image_name = f"{repo_val}/{image_val}"
 
     # Check for duplicate profile names
     if any(p["name"] == name_val for p in config["profiles"]):
@@ -51,10 +54,10 @@ def add(repository, image, tag, name, yes):
     config["profiles"].append(new_profile)
     save_config(config)
 
-    console.print(f"\n[green]Profile '{name_val}' with image '{full_image_name}:{tag_val}' has been added to config.[/green]")
-
-    # Regenerate compose file
+    create_snapshot(f"Added profile '{name_val}'")
     generate_compose_file()
+
+    console.print(f"\n[green]Profile '{name_val}' with image '{full_image_name}:{tag_val}' has been added to config.[/green]")
 
     apply_changes = yes or (is_interactive and Confirm.ask("\n[cyan]Apply changes and restart the stack now?[/cyan]", default=True))
     
@@ -122,8 +125,10 @@ def remove(name, yes):
     config["profiles"].remove(profile_to_remove)
     save_config(config)
 
-    console.print(f"[green]Profile '{profile_to_remove['name']}' removed from configuration.[/green]")
+    create_snapshot(f"Removed profile '{profile_to_remove['name']}'")
     generate_compose_file()
+
+    console.print(f"[green]Profile '{profile_to_remove['name']}' removed from configuration.[/green]")
 
     apply_changes = yes or Confirm.ask("\n[cyan]Apply changes and remove the container now?[/cyan]", default=True)
 
