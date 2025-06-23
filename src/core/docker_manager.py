@@ -98,15 +98,18 @@ def generate_compose_file():
     console.print(f"[green]docker-compose.yml generated successfully.[/green]")
 
 
-def run_docker_compose(command: list):
+def run_docker_compose(command: list, project_name: str = None):
     """Helper function to run docker compose commands."""
     if not check_docker_installed():
         console.print("[bold red]Docker is not installed or not running.[/bold red]")
         console.print("Please install Docker Desktop and ensure it's running before using this tool.")
         sys.exit(1)
-        
-    config = load_config()
-    base_command = ["docker", "compose", "--project-name", config["stack_name"]]
+    
+    if project_name is None:
+        config = load_config()
+        project_name = config["stack_name"]
+
+    base_command = ["docker", "compose", "--project-name", project_name]
     full_command = base_command + command
     
     console.print(f"[bold cyan]Running command: {' '.join(full_command)}[/bold cyan]")
@@ -133,21 +136,21 @@ def docker_up(remove_orphans=False):
         command.append("--remove-orphans")
     return run_docker_compose(command)
 
-def docker_restart():
+def docker_restart(project_name: str = None):
     """Stops and then starts the stack to ensure a clean restart."""
     console.print("[cyan]Stopping the stack...[/cyan]")
-    if not run_docker_compose(["down"]):
+    if not run_docker_compose(["down"], project_name=project_name):
         console.print("[bold red]Failed to stop the stack. Aborting restart.[/bold red]")
         return
     
     console.print("\n[cyan]Starting the stack...[/cyan]")
-    run_docker_compose(["up", "-d"])
+    run_docker_compose(["up", "-d"], project_name=project_name)
 
-def docker_down():
-    run_docker_compose(["down"])
+def docker_down(project_name: str = None):
+    return run_docker_compose(["down"], project_name=project_name)
 
-def docker_reset():
-    run_docker_compose(["down", "-v"])
+def docker_reset(project_name: str = None):
+    return run_docker_compose(["down", "-v"], project_name=project_name)
 
-def docker_status():
-    run_docker_compose(["ps"]) 
+def docker_status(project_name: str = None):
+    return run_docker_compose(["ps"], project_name=project_name) 

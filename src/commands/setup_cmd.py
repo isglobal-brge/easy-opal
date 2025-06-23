@@ -4,6 +4,7 @@ import shutil
 from rich.console import Console
 from rich.prompt import Prompt, IntPrompt, Confirm
 from pathlib import Path
+import json
 
 from src.core.config_manager import (
     save_config,
@@ -17,7 +18,7 @@ from src.core.config_manager import (
 )
 from src.core.ssl_manager import generate_cert_with_mkcert, check_mkcert_installed
 from src.core.nginx_manager import generate_nginx_config
-from src.core.docker_manager import generate_compose_file, check_docker_installed, run_docker_compose
+from src.core.docker_manager import generate_compose_file, check_docker_installed, run_docker_compose, docker_reset
 
 console = Console()
 
@@ -45,7 +46,25 @@ def get_local_ip():
 @click.option("--ssl-email", help="Email for Let's Encrypt renewal notices (for 'letsencrypt' strategy).")
 def setup(stack_name, hosts, port, password, ssl_strategy, ssl_cert_path, ssl_key_path, ssl_email):
     """Guides you through the initial setup or reconfigures the environment."""
-    # Determine if we can run non-interactively
+    
+    # First, handle the potential teardown of an existing stack.
+    if CONFIG_FILE.exists():
+        if not Confirm.ask(
+            "[yellow]An existing configuration was found. Continuing will stop and remove the current stack before creating a new one. Proceed?[/yellow]", 
+            default=True
+        ):
+            console.print("[bold red]Setup aborted by user.[/bold red]")
+            return
+
+        console.print("\n[cyan]Tearing down the existing stack...[/cyan]")
+        with open(CONFIG_FILE, "r") as f:
+            old_config = json.load(f)
+        old_stack_name = old_config.get("stack_name", "easy-opal")
+        docker_reset(project_name=old_stack_name)
+        console.print("[green]Previous stack removed successfully.[/green]\n")
+
+    # Now, proceed with the setup flow.
+    # Determine if we can run non-interactively.
     is_interactive = not all([stack_name, hosts, port, password, ssl_strategy])
     
     # Check for specific non-interactive requirements
@@ -54,18 +73,8 @@ def setup(stack_name, hosts, port, password, ssl_strategy, ssl_cert_path, ssl_ke
     if not is_interactive and ssl_strategy == 'letsencrypt' and not ssl_email:
         is_interactive = True # Missing letsencrypt email, force interactive
 
-
     if is_interactive:
         console.print("[bold cyan]Welcome to the easy-opal setup wizard![/bold cyan]")
-
-    if CONFIG_FILE.exists():
-        # In non-interactive mode, we assume overwrite.
-        if is_interactive and not Confirm.ask(
-            "[yellow]A configuration file already exists. Do you want to overwrite it and start a new setup?[/yellow]",
-            default=False,
-        ):
-            console.print("[bold yellow]Setup aborted.[/bold yellow]")
-            return
 
     # Dependency checks
     if not check_docker_installed():
