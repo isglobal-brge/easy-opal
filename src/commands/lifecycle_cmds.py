@@ -36,24 +36,28 @@ def restart():
     docker_restart()
 
 @click.command()
-@click.option("--docker", "delete_docker", is_flag=True, help="Delete Docker containers, networks, and volumes.")
+@click.option("--containers", "delete_containers", is_flag=True, help="Stop and remove Docker containers and networks.")
+@click.option("--volumes", "delete_volumes", is_flag=True, help="Delete Docker volumes (all application data).")
 @click.option("--configs", "delete_configs", is_flag=True, help="Delete configuration files.")
 @click.option("--certs", "delete_certs", is_flag=True, help="Delete SSL certificates.")
 @click.option("--secrets", "delete_secrets", is_flag=True, help="Delete the .env file with the password.")
 @click.option("--all", is_flag=True, help="Flag to delete everything. Equivalent to using all other flags.")
 @click.option("--yes", is_flag=True, help="Bypass the final confirmation prompt.")
-def reset(delete_docker, delete_configs, delete_certs, delete_secrets, all, yes):
+def reset(delete_containers, delete_volumes, delete_configs, delete_certs, delete_secrets, all, yes):
     """Selectively resets parts of the Opal environment."""
-    is_interactive = not any([delete_docker, delete_configs, delete_certs, delete_secrets, all])
+    is_interactive = not any([delete_containers, delete_volumes, delete_configs, delete_certs, delete_secrets, all])
 
     if all:
-        delete_docker = delete_configs = delete_certs = delete_secrets = True
+        delete_containers = delete_volumes = delete_configs = delete_certs = delete_secrets = True
 
     if is_interactive:
         console.print("\n[bold cyan]Interactive Reset Wizard[/bold cyan]")
         console.print("Select which components you want to permanently delete.")
-        delete_docker = Confirm.ask(
-            "[cyan]Delete all Docker containers, networks, and volumes (includes all Opal/Mongo/Rock data)? This is highly destructive.[/cyan]", default=True
+        delete_containers = Confirm.ask(
+            "[cyan]Stop and remove all Docker containers and networks?[/cyan]", default=True
+        )
+        delete_volumes = Confirm.ask(
+            "[bold red]Delete all Docker volumes (includes all Opal/Mongo/Rock data)? THIS IS HIGHLY DESTRUCTIVE.[/bold red]", default=False
         )
         delete_configs = Confirm.ask(
             "[cyan]Delete configuration files (config.json, docker-compose.yml)?[/cyan]", default=False
@@ -65,12 +69,13 @@ def reset(delete_docker, delete_configs, delete_certs, delete_secrets, all, yes)
             "[cyan]Delete secrets file (.env)?[/cyan]", default=False
         )
 
-    if not any([delete_docker, delete_configs, delete_certs, delete_secrets]):
+    if not any([delete_containers, delete_volumes, delete_configs, delete_certs, delete_secrets]):
         console.print("[yellow]Nothing selected. Reset aborted.[/yellow]")
         return
 
     console.print("\n[bold yellow]Summary of actions to be performed:[/bold yellow]")
-    if delete_docker: console.print("- Remove all Docker containers, networks, and named volumes (Opal, Mongo, Rock data).")
+    if delete_containers: console.print("- Stop and remove all Docker containers and networks.")
+    if delete_volumes: console.print("- [bold red]Delete all Docker volumes (Opal, Mongo, Rock data).[/bold red]")
     if delete_configs: console.print("- Delete config.json and docker-compose.yml.")
     if delete_certs: console.print("- Delete the SSL certificates directory.")
     if delete_secrets: console.print("- Delete the secrets file (.env).")
@@ -85,9 +90,12 @@ def reset(delete_docker, delete_configs, delete_certs, delete_secrets, all, yes)
 
     console.print("\n[bold cyan]Proceeding with reset...[/bold cyan]")
 
-    if delete_docker:
-        docker_reset()
+    if delete_volumes:
+        docker_reset() # This runs 'down -v', removing volumes
         console.print("[green]Docker components and all application data reset.[/green]")
+    elif delete_containers:
+        docker_down() # This runs 'down', leaving volumes
+        console.print("[green]Docker containers and networks removed.[/green]")
 
     if delete_configs:
         if CONFIG_FILE.exists():

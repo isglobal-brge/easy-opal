@@ -51,10 +51,10 @@ def add(repository, image, tag, name, yes):
         return
 
     new_profile = {"name": name_val, "image": full_image_name, "tag": tag_val}
+    # Create a snapshot before making changes
+    create_snapshot(f"Added profile '{name_val}'")
     config["profiles"].append(new_profile)
     save_config(config)
-
-    create_snapshot(f"Added profile '{name_val}'")
     generate_compose_file()
 
     console.print(f"\n[green]Profile '{name_val}' with image '{full_image_name}:{tag_val}' has been added to config.[/green]")
@@ -121,11 +121,10 @@ def remove(name, yes):
         )
         profile_to_remove = profiles[int(choice)]
 
-    # Perform the removal
+    # Create a snapshot before making changes
+    create_snapshot(f"Removed profile '{profile_to_remove['name']}'")
     config["profiles"].remove(profile_to_remove)
     save_config(config)
-
-    create_snapshot(f"Removed profile '{profile_to_remove['name']}'")
     generate_compose_file()
 
     console.print(f"[green]Profile '{profile_to_remove['name']}' removed from configuration.[/green]")

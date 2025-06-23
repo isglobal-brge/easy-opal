@@ -99,8 +99,6 @@ def generate_compose_file():
     with open(DOCKER_COMPOSE_PATH, "w") as f:
         yaml.dump(compose_data, f)
 
-    create_snapshot("Configuration updated")
-
     console.print(f"[green]docker-compose.yml generated successfully.[/green]")
 
 

@@ -57,9 +57,10 @@ def change_port(port):
     if not new_port:
         new_port = IntPrompt.ask("Enter the new external HTTPS port", default=cfg["opal_external_port"])
 
+    # Create a snapshot before making changes
+    create_snapshot_from_manager(f"Changed external port to {new_port}")
     cfg["opal_external_port"] = new_port
     save_config(cfg)
-    create_snapshot_from_manager(f"Changed external port to {new_port}")
     generate_compose_file()
     console.print("[green]Port updated in configuration.[/green]")
     console.print("\nRun './easy-opal up' to apply the changes.")
@@ -91,10 +92,16 @@ def export_config():
         console.print(f"[bold red]An error occurred during export: {e}[/bold red]")
 
 @config.command(name="import")
-@click.argument("import_string")
+@click.argument("import_string", required=False)
 @click.option("--yes", is_flag=True, help="Bypass confirmation prompt.")
 def import_config(import_string, yes):
     """Imports a configuration from an export string."""
+    if not import_string:
+        import_string = Prompt.ask("[cyan]Please paste the configuration export string[/cyan]")
+        if not import_string or not import_string.strip():
+            console.print("[bold red]Import string cannot be empty.[/bold red]")
+            return
+
     try:
         # Decode from base64
         compressed = base64.b64decode(import_string)

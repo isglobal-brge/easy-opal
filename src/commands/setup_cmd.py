@@ -19,6 +19,7 @@ from src.core.config_manager import (
 from src.core.ssl_manager import generate_cert_with_mkcert, check_mkcert_installed
 from src.core.nginx_manager import generate_nginx_config
 from src.core.docker_manager import generate_compose_file, check_docker_installed, run_docker_compose, docker_reset
+from src.commands.lifecycle_cmds import reset as interactive_reset
 
 console = Console()
 
@@ -44,28 +45,57 @@ def get_local_ip():
 @click.option("--ssl-cert-path", help="Path to your certificate file (for 'manual' strategy).")
 @click.option("--ssl-key-path", help="Path to your private key file (for 'manual' strategy).")
 @click.option("--ssl-email", help="Email for Let's Encrypt renewal notices (for 'letsencrypt' strategy).")
-def setup(stack_name, hosts, port, password, ssl_strategy, ssl_cert_path, ssl_key_path, ssl_email):
+@click.option("--yes", is_flag=True, help="Bypass confirmation prompts for a non-interactive setup.")
+@click.option('--reset-containers', is_flag=True, help='[Non-interactive] Stop and remove Docker containers and networks.')
+@click.option('--reset-volumes', is_flag=True, help='[Non-interactive] Delete Docker volumes (application data).')
+@click.option('--reset-configs', is_flag=True, help='[Non-interactive] Reset config files during setup.')
+@click.option('--reset-certs', is_flag=True, help='[Non-interactive] Reset certs during setup.')
+@click.option('--reset-secrets', is_flag=True, help='[Non-interactive] Reset secrets file during setup.')
+def setup(
+    stack_name, hosts, port, password, ssl_strategy, ssl_cert_path,
+    ssl_key_path, ssl_email, yes, reset_containers, reset_volumes,
+    reset_configs, reset_certs, reset_secrets
+):
     """Guides you through the initial setup or reconfigures the environment."""
     
     # First, handle the potential teardown of an existing stack.
     if CONFIG_FILE.exists():
-        if not Confirm.ask(
-            "[yellow]An existing configuration was found. Continuing will stop and remove the current stack before creating a new one. Proceed?[/yellow]", 
-            default=True
-        ):
-            console.print("[bold red]Setup aborted by user.[/bold red]")
-            return
+        if not yes: # Interactive path
+            if not Confirm.ask(
+                "[yellow]An existing configuration was found. Continuing will overwrite this configuration. Proceed?[/yellow]", 
+                default=False
+            ):
+                console.print("[bold red]Setup aborted by user.[/bold red]")
+                return
 
-        console.print("\n[cyan]Tearing down the existing stack...[/cyan]")
-        with open(CONFIG_FILE, "r") as f:
-            old_config = json.load(f)
-        old_stack_name = old_config.get("stack_name", "easy-opal")
-        docker_reset(project_name=old_stack_name)
-        console.print("[green]Previous stack removed successfully.[/green]\n")
+            console.print("\n[cyan]Running reset wizard to clean up previous installation...[/cyan]")
+            try:
+                # Call the reset command in interactive mode
+                interactive_reset.callback(
+                    delete_containers=False, delete_volumes=False, delete_configs=False,
+                    delete_certs=False, delete_secrets=False, all=False, yes=False
+                )
+            except Exception as e:
+                console.print(f"[bold red]An error occurred during reset: {e}[/bold red]")
+            console.print("[green]Reset complete. Continuing with new setup...[/green]\n")
+        
+        else: # Non-interactive path
+            # If any reset flags are passed, run the reset command non-interactively
+            if any([reset_containers, reset_volumes, reset_configs, reset_certs, reset_secrets]):
+                console.print("[bold yellow]--yes flag provided. Performing specified non-interactive reset...[/bold yellow]")
+                try:
+                    interactive_reset.callback(
+                        delete_containers=reset_containers, delete_volumes=reset_volumes,
+                        delete_configs=reset_configs, delete_certs=reset_certs,
+                        delete_secrets=reset_secrets, all=False, yes=True
+                    )
+                except Exception as e:
+                    console.print(f"[bold red]An error occurred during non-interactive reset: {e}[/bold red]")
+                console.print("[green]Non-interactive reset complete. Continuing with new setup...[/green]\n")
 
     # Now, proceed with the setup flow.
     # Determine if we can run non-interactively.
-    is_interactive = not all([stack_name, hosts, port, password, ssl_strategy])
+    is_interactive = not all([stack_name, hosts, port, password, ssl_strategy]) and not yes
     
     # Check for specific non-interactive requirements
     if not is_interactive and ssl_strategy == 'manual' and not all([ssl_cert_path, ssl_key_path]):
