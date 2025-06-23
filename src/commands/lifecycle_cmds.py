@@ -57,7 +57,7 @@ def reset(delete_containers, delete_volumes, delete_configs, delete_certs, delet
             "[cyan]Stop and remove all Docker containers and networks?[/cyan]", default=True
         )
         delete_volumes = Confirm.ask(
-            "[bold red]Delete all Docker volumes (includes all Opal/Mongo/Rock data)? THIS IS HIGHLY DESTRUCTIVE.[/bold red]", default=False
+            "[bold red]Delete all Docker volumes (includes all Opal/Mongo/Rock data)? This action is highly destructive.[/bold red]", default=False
         )
         delete_configs = Confirm.ask(
             "[cyan]Delete configuration files (config.json, docker-compose.yml)?[/cyan]", default=False

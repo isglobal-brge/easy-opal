@@ -47,8 +47,15 @@ http {
         ssl_ciphers HIGH:!aNULL:!MD5;
         ssl_prefer_server_ciphers on;
 
+        # Custom error pages
+        error_page 502 503 504 /maintenance.html;
+        location = /maintenance.html {
+            root /usr/share/nginx/html;
+            internal;
+        }
+
         location / {
-            proxy_pass http://opal:8080;
+            proxy_pass http://opal:8080/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

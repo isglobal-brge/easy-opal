@@ -18,10 +18,21 @@ from src.core.config_manager import (
 )
 from src.core.ssl_manager import generate_cert_with_mkcert, check_mkcert_installed
 from src.core.nginx_manager import generate_nginx_config
-from src.core.docker_manager import generate_compose_file, check_docker_installed, run_docker_compose, docker_reset
+from src.core.docker_manager import generate_compose_file, check_docker_installed, run_docker_compose, docker_reset, docker_down
 from src.commands.lifecycle_cmds import reset as interactive_reset
 
 console = Console()
+
+def is_port_in_use(port: int) -> bool:
+    """Checks if a local TCP port is already in use."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            # We try to bind to all interfaces on that port
+            s.bind(("0.0.0.0", port))
+            return False
+        except OSError:
+            # This exception (e.g., EADDRINUSE) means the port is taken
+            return True
 
 def get_local_ip():
     """Tries to get the local IP address of the machine."""
@@ -60,17 +71,26 @@ def setup(
     
     # First, handle the potential teardown of an existing stack.
     if CONFIG_FILE.exists():
+        
         if not yes: # Interactive path
             if not Confirm.ask(
-                "[yellow]An existing configuration was found. Continuing will overwrite this configuration. Proceed?[/yellow]", 
+                "\n[yellow]An existing configuration was found. Continuing will overwrite this configuration. Proceed?[/yellow]", 
                 default=False
             ):
                 console.print("[bold red]Setup aborted by user.[/bold red]")
                 return
 
+            # Stop the old stack now that the user has confirmed.
+            console.print("\n[cyan]Stopping any running services from the previous setup...[/cyan]")
+            try:
+                with open(CONFIG_FILE, "r") as f: old_config = json.load(f)
+                docker_down(project_name=old_config.get("stack_name", "easy-opal"))
+                console.print("[green]Previous services stopped.[/green]")
+            except Exception as e:
+                console.print(f"[bold red]Could not stop previous services cleanly: {e}[/bold red]")
+
             console.print("\n[cyan]Running reset wizard to clean up previous installation...[/cyan]")
             try:
-                # Call the reset command in interactive mode
                 interactive_reset.callback(
                     delete_containers=False, delete_volumes=False, delete_configs=False,
                     delete_certs=False, delete_secrets=False, all=False, yes=False
@@ -79,8 +99,16 @@ def setup(
                 console.print(f"[bold red]An error occurred during reset: {e}[/bold red]")
             console.print("[green]Reset complete. Continuing with new setup...[/green]\n")
         
-        else: # Non-interactive path
-            # If any reset flags are passed, run the reset command non-interactively
+        else: # Non-interactive path with --yes
+            # Stop the old stack automatically since --yes implies proceed.
+            console.print("\n[cyan]Stopping any running services from the previous setup...[/cyan]")
+            try:
+                with open(CONFIG_FILE, "r") as f: old_config = json.load(f)
+                docker_down(project_name=old_config.get("stack_name", "easy-opal"))
+                console.print("[green]Previous services stopped.[/green]")
+            except Exception as e:
+                console.print(f"[bold red]Could not stop previous services cleanly: {e}[/bold red]")
+
             if any([reset_containers, reset_volumes, reset_configs, reset_certs, reset_secrets]):
                 console.print("[bold yellow]--yes flag provided. Performing specified non-interactive reset...[/bold yellow]")
                 try:
@@ -117,7 +145,14 @@ def setup(
         # --- Collect Base Config ---
         console.print("[cyan]1. General Configuration[/cyan]")
         config["stack_name"] = Prompt.ask("Enter the stack name", default=config["stack_name"])
-        config["opal_external_port"] = IntPrompt.ask("Enter the external HTTPS port for Opal", default=config["opal_external_port"])
+        
+        while True:
+            port_val = IntPrompt.ask("Enter the external HTTPS port for Opal", default=config["opal_external_port"])
+            if not is_port_in_use(port_val):
+                config["opal_external_port"] = port_val
+                break
+            else:
+                console.print(f"[bold red]Port {port_val} is already in use. Please choose another one.[/bold red]")
 
         # --- Collect SSL Strategy ---
         console.print("\n[cyan]2. SSL Certificate Configuration[/cyan]")
@@ -160,7 +195,7 @@ def setup(
                 console.print("[bold red]Private key path cannot be empty.[/bold red]")
                 return
             if not Path(key_path_str).is_file():
-                console.print(f"[bold red]File not found at: {key_path_str}[/bold red]")
+                console.print(f"[bold red]File not found at: {key_path_path}[/bold red]")
                 return
 
             host = Prompt.ask("Enter the primary hostname for this certificate (e.g., my-opal.domain.com)")
@@ -214,23 +249,25 @@ def setup(
     if is_interactive:
         if ENV_FILE.exists():
             if Confirm.ask("\n[yellow]An administrator password is already set. Do you want to change it?[/yellow]", default=False):
-                new_password = Prompt.ask("Enter the new Opal administrator password", password=True)
-                if new_password.strip():
-                    (ENV_FILE).write_text(f"OPAL_ADMIN_PASSWORD={new_password}")
-                    console.print("[green]Password updated.[/green]")
-                else:
-                    console.print("[bold red]Password cannot be empty.[/bold red]")
-                    return
+                while True:
+                    new_password = Prompt.ask("Enter the new Opal administrator password", password=True)
+                    if new_password.strip():
+                        (ENV_FILE).write_text(f"OPAL_ADMIN_PASSWORD={new_password}")
+                        console.print("[green]Password updated.[/green]")
+                        break
+                    else:
+                        console.print("[bold red]Password cannot be empty. Please try again.[/bold red]")
             else:
                 console.print("[green]Keeping existing password.[/green]")
         else:
-            new_password = Prompt.ask("\nEnter the Opal administrator password", password=True)
-            if new_password.strip():
-                (ENV_FILE).write_text(f"OPAL_ADMIN_PASSWORD={new_password}")
-                console.print("[green]Password saved.[/green]")
-            else:
-                console.print("[bold red]Password cannot be empty.[/bold red]")
-                return
+            while True:
+                new_password = Prompt.ask("\nEnter the Opal administrator password", password=True)
+                if new_password.strip():
+                    (ENV_FILE).write_text(f"OPAL_ADMIN_PASSWORD={new_password}")
+                    console.print("[green]Password saved.[/green]")
+                    break
+                else:
+                    console.print("[bold red]Password cannot be empty. Please try again.[/bold red]")
     else: # Non-interactive
         if not password:
             console.print("[bold red]--password flag is required for non-interactive setup.[/bold red]")

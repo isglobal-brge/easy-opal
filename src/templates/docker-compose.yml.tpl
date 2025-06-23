@@ -44,6 +44,7 @@ services:
     volumes:
       - ./data/nginx/conf/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./data/nginx/certs:/etc/nginx/certs:ro
+      - ./data/nginx/html:/usr/share/nginx/html:ro
       - ./data/letsencrypt/www:/var/www/certbot:ro
       - ./data/letsencrypt/conf:/etc/letsencrypt
     depends_on:
