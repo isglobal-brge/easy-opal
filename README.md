@@ -46,16 +46,30 @@ source venv/bin/activate
 
 ### 2. Initial Setup
 
-To configure your Opal stack for the first time, run the interactive setup wizard:
+To configure your Opal stack for the first time, you can run the interactive setup wizard:
 ```bash
 python3 easy-opal.py setup
 ```
-The wizard will guide you through:
-- Naming your stack.
-- Configuring the SSL certificate strategy (`self-signed`, `letsencrypt`, or `manual`).
-- Setting hostnames/IPs for the certificate.
-- Setting the external port for Opal.
-- Setting the Opal administrator password.
+Alternatively, you can provide all setup options as flags for non-interactive or scripted setups:
+```bash
+# Example for a self-signed certificate
+python3 easy-opal.py setup \
+  --stack-name my-opal \
+  --host localhost --host 192.168.1.100 \
+  --port 443 \
+  --password "supersecret" \
+  --ssl-strategy "self-signed"
+
+# Example for a manual certificate
+python3 easy-opal.py setup \
+  --stack-name my-opal \
+  --host my-opal.domain.com \
+  --port 443 \
+  --password "supersecret" \
+  --ssl-strategy "manual" \
+  --ssl-cert-path /path/to/cert.crt \
+  --ssl-key-path /path/to/key.key
+```
 
 ### 3. Stack Lifecycle Commands
 
@@ -71,22 +85,37 @@ The wizard will guide you through:
   ```bash
   python3 easy-opal.py status
   ```
-- **Factory Reset**: Stop all services, remove all data (volumes, certs), and delete all configuration files. This returns the project to a clean state, requiring you to run `setup` again.
+- **Factory Reset**: Stop all services and remove data. Use `--help` to see all options.
   ```bash
+  # Interactive wizard
   python3 easy-opal.py reset
+
+  # Non-interactive: Delete everything and bypass confirmation
+  python3 easy-opal.py reset --all --yes
   ```
 
 ### 4. Managing Rock Profiles
 
-- **Add a new profile**: An interactive wizard will guide you through adding a new Rock service. The new service will be started automatically.
+- **Add a new profile**:
   ```bash
+  # Interactive wizard
   python3 easy-opal.py profile add
-  ```
-  After adding a profile, you will be prompted to restart the stack to apply the changes.
 
-- **Remove a profile**: Lists the current profiles and prompts you to select one to remove. The corresponding container will be stopped and removed automatically.
+  # Non-interactive, with automatic restart
+  python3 easy-opal.py profile add \
+    --repository datashield \
+    --image rock-mediation \
+    --tag latest \
+    --name rock-mediation-beta \
+    --yes
+  ```
+- **Remove a profile**:
   ```bash
+  # Interactive wizard
   python3 easy-opal.py profile remove
+
+  # Non-interactive, with automatic removal
+  python3 easy-opal.py profile remove rock-mediation-beta --yes
   ```
 - **List configured profiles**:
   ```bash
@@ -101,11 +130,11 @@ The wizard will guide you through:
   ```
 - **Change the Opal admin password**:
   ```bash
-  python3 easy-opal.py config change-password
+  python3 easy-opal.py config change-password "new_password"
   ```
 - **Change the external port**:
   ```bash
-  python3 easy-opal.py config change-port
+  python3 easy-opal.py config change-port 8443
   ```
 
 ### 6. Certificate Management

@@ -37,10 +37,21 @@ def get_local_ip():
 @click.option('--host', 'hosts', multiple=True, help='A hostname or IP for Opal. Can be used multiple times.')
 @click.option('--port', help='The external HTTPS port for Opal.', type=int)
 @click.option('--password', help='The Opal administrator password.')
-def setup(stack_name, hosts, port, password):
+@click.option("--ssl-strategy", type=click.Choice(['self-signed', 'letsencrypt', 'manual']), help="The SSL strategy to use.")
+@click.option("--ssl-cert-path", help="Path to your certificate file (for 'manual' strategy).")
+@click.option("--ssl-key-path", help="Path to your private key file (for 'manual' strategy).")
+@click.option("--ssl-email", help="Email for Let's Encrypt renewal notices (for 'letsencrypt' strategy).")
+def setup(stack_name, hosts, port, password, ssl_strategy, ssl_cert_path, ssl_key_path, ssl_email):
     """Guides you through the initial setup or reconfigures the environment."""
-    # If no parameters are given, run interactively.
-    is_interactive = not stack_name and not hosts and not port and not password
+    # Determine if we can run non-interactively
+    is_interactive = not all([stack_name, hosts, port, password, ssl_strategy])
+    
+    # Check for specific non-interactive requirements
+    if not is_interactive and ssl_strategy == 'manual' and not all([ssl_cert_path, ssl_key_path]):
+        is_interactive = True # Missing manual cert paths, force interactive
+    if not is_interactive and ssl_strategy == 'letsencrypt' and not ssl_email:
+        is_interactive = True # Missing letsencrypt email, force interactive
+
 
     if is_interactive:
         console.print("[bold cyan]Welcome to the easy-opal setup wizard![/bold cyan]")
@@ -135,13 +146,19 @@ def setup(stack_name, hosts, port, password):
             config["hosts"] = [domain]
 
     else: # Non-interactive mode
-        # This part could be expanded to support all strategies via flags.
-        # For now, it will implicitly use the "self-signed" defaults for hosts.
         console.print("[cyan]Running non-interactive setup...[/cyan]")
         if stack_name: config["stack_name"] = stack_name
         if hosts: config["hosts"] = list(hosts)
         if port: config["opal_external_port"] = port
         if password: config["opal_admin_password"] = password
+        
+        # SSL non-interactive config
+        config["ssl"]["strategy"] = ssl_strategy
+        if ssl_strategy == "manual":
+            config["ssl"]["cert_path"] = ssl_cert_path
+            config["ssl"]["key_path"] = ssl_key_path
+        elif ssl_strategy == "letsencrypt":
+            config["ssl"]["le_email"] = ssl_email
 
     console.print("\n[cyan]Configuration complete. Proceeding with setup...[/cyan]")
     
