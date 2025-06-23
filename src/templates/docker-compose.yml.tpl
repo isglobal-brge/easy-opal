@@ -40,6 +40,7 @@ services:
     restart: always
     ports:
       - "${OPAL_EXTERNAL_PORT}:443"
+      #LETSENCRYPT_PORT_MAPPING
     volumes:
       - ./data/nginx/conf/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./data/nginx/certs:/etc/nginx/certs:ro

@@ -59,6 +59,12 @@ def generate_compose_file():
     
     compose_string = compose_string.replace("${OPAL_ROCK_HOSTS}", ",".join(rock_hosts))
 
+    # Conditionally add port 80 mapping for letsencrypt
+    if config.get("ssl", {}).get("strategy") == "letsencrypt":
+        compose_string = compose_string.replace("#LETSENCRYPT_PORT_MAPPING", '- "80:80"')
+    else:
+        compose_string = compose_string.replace("#LETSENCRYPT_PORT_MAPPING", "")
+
     compose_data = yaml.load(compose_string)
 
     # Add rock profiles
