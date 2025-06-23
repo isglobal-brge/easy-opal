@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 from typing import Dict, Any, List
+from rich.console import Console
+from rich.prompt import Prompt
 
 CONFIG_FILE = Path("config.json")
 BACKUPS_DIR = Path("backups")
@@ -10,6 +12,8 @@ NGINX_DIR = DATA_DIR / "nginx"
 CERTS_DIR = NGINX_DIR / "certs"
 NGINX_CONF_DIR = NGINX_DIR / "conf"
 
+console = Console()
+ENV_FILE = Path.cwd() / ".env"
 
 def get_default_config() -> Dict[str, Any]:
     """Returns the default configuration dictionary."""
@@ -50,6 +54,26 @@ def load_config() -> Dict[str, Any]:
         return init_config()
     with open(CONFIG_FILE, "r") as f:
         return json.load(f)
+
+def ensure_password_is_set() -> bool:
+    """
+    Checks if the .env file with the password exists.
+    If not, it prompts the user to create it.
+    Returns False if the process is aborted, True otherwise.
+    """
+    if ENV_FILE.exists():
+        return True
+
+    console.print("[bold yellow]It looks like the administrator password is not set.[/bold yellow]")
+    password = Prompt.ask("Please enter a new Opal administrator password", password=True)
+
+    if not password.strip():
+        console.print("[bold red]Password cannot be empty. Aborting.[/bold red]")
+        return False
+
+    ENV_FILE.write_text(f"OPAL_ADMIN_PASSWORD={password}")
+    console.print(f"[green]Password saved to {ENV_FILE}[/green]")
+    return True
 
 def ensure_directories_exist():
     """Ensures that all necessary data and backup directories exist."""

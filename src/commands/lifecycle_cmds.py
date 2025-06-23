@@ -10,25 +10,28 @@ from src.core.docker_manager import (
     docker_status,
     DOCKER_COMPOSE_PATH,
 )
-from src.core.config_manager import CONFIG_FILE, CERTS_DIR, DATA_DIR
+from src.core.config_manager import CONFIG_FILE, CERTS_DIR, DATA_DIR, ensure_password_is_set
 
 console = Console()
 
 @click.command()
 def up():
     """Starts the Opal stack in detached mode."""
+    if not ensure_password_is_set(): return
     console.print("[bold cyan]Starting the Opal stack...[/bold cyan]")
     docker_up()
 
 @click.command()
 def down():
     """Stops the Opal stack."""
+    if not ensure_password_is_set(): return
     console.print("[bold cyan]Stopping the Opal stack...[/bold cyan]")
     docker_down()
 
 @click.command()
 def restart():
     """Restarts the Opal stack."""
+    if not ensure_password_is_set(): return
     console.print("[bold cyan]Restarting the Opal stack...[/bold cyan]")
     docker_restart()
 
@@ -36,14 +39,15 @@ def restart():
 @click.option("--docker", "delete_docker", is_flag=True, help="Delete Docker containers, networks, and volumes.")
 @click.option("--configs", "delete_configs", is_flag=True, help="Delete configuration files.")
 @click.option("--certs", "delete_certs", is_flag=True, help="Delete SSL certificates.")
+@click.option("--secrets", "delete_secrets", is_flag=True, help="Delete the .env file with the password.")
 @click.option("--all", is_flag=True, help="Flag to delete everything. Equivalent to using all other flags.")
 @click.option("--yes", is_flag=True, help="Bypass the final confirmation prompt.")
-def reset(delete_docker, delete_configs, delete_certs, all, yes):
+def reset(delete_docker, delete_configs, delete_certs, delete_secrets, all, yes):
     """Selectively resets parts of the Opal environment."""
-    is_interactive = not any([delete_docker, delete_configs, delete_certs, all])
+    is_interactive = not any([delete_docker, delete_configs, delete_certs, delete_secrets, all])
 
     if all:
-        delete_docker = delete_configs = delete_certs = True
+        delete_docker = delete_configs = delete_certs = delete_secrets = True
 
     if is_interactive:
         console.print("\n[bold cyan]Interactive Reset Wizard[/bold cyan]")
@@ -57,8 +61,11 @@ def reset(delete_docker, delete_configs, delete_certs, all, yes):
         delete_certs = Confirm.ask(
             "[cyan]Delete SSL certificates directory?[/cyan]", default=False
         )
+        delete_secrets = Confirm.ask(
+            "[cyan]Delete secrets file (.env)?[/cyan]", default=False
+        )
 
-    if not any([delete_docker, delete_configs, delete_certs]):
+    if not any([delete_docker, delete_configs, delete_certs, delete_secrets]):
         console.print("[yellow]Nothing selected. Reset aborted.[/yellow]")
         return
 
@@ -66,6 +73,7 @@ def reset(delete_docker, delete_configs, delete_certs, all, yes):
     if delete_docker: console.print("- Remove all Docker containers, networks, and named volumes (Opal, Mongo, Rock data).")
     if delete_configs: console.print("- Delete config.json and docker-compose.yml.")
     if delete_certs: console.print("- Delete the SSL certificates directory.")
+    if delete_secrets: console.print("- Delete the secrets file (.env).")
 
     proceed = yes or Confirm.ask(
         "\n[bold red]Are you sure you want to proceed with the selected actions?[/bold red]", default=False
@@ -94,10 +102,18 @@ def reset(delete_docker, delete_configs, delete_certs, all, yes):
             shutil.rmtree(CERTS_DIR)
             console.print(f"[yellow]Deleted certificates directory: {CERTS_DIR}[/yellow]")
 
+    if delete_secrets:
+        from pathlib import Path
+        env_file = Path.cwd() / ".env"
+        if env_file.exists():
+            env_file.unlink()
+            console.print(f"[yellow]Deleted secrets file: {env_file}[/yellow]")
+
     console.print("\n[green]Reset operation complete.[/green]")
 
 @click.command()
 def status():
     """Displays the status of the containers in the stack."""
+    if not ensure_password_is_set(): return
     console.print("[bold cyan]Opal stack status:[/bold cyan]")
     docker_status() 

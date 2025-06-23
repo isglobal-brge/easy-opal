@@ -3,7 +3,7 @@ from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 
-from src.core.config_manager import load_config, save_config
+from src.core.config_manager import load_config, save_config, ensure_password_is_set
 from src.core.docker_manager import generate_compose_file, docker_up, docker_restart, docker_down
 
 console = Console()
@@ -21,6 +21,7 @@ def profile():
 @click.option("--yes", is_flag=True, help="Bypass confirmation and apply changes immediately.")
 def add(repository, image, tag, name, yes):
     """Adds a new Rock profile to the configuration."""
+    if not ensure_password_is_set(): return
     config = load_config()
     is_interactive = not all([repository, image, name])
 
@@ -83,6 +84,7 @@ def add(repository, image, tag, name, yes):
 @click.option("--yes", is_flag=True, help="Bypass confirmation and apply changes immediately.")
 def remove(name, yes):
     """Removes an existing Rock profile, either by name or interactively."""
+    if not ensure_password_is_set(): return
     config = load_config()
     profiles = config.get("profiles", [])
 

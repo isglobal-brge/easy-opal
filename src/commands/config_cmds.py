@@ -1,7 +1,8 @@
 import click
 import json
 from rich.console import Console
-from rich.prompt import Prompt, IntPrompt
+from rich.prompt import Prompt, IntPrompt, Confirm
+from pathlib import Path
 
 from src.core.config_manager import load_config, save_config
 from src.core.docker_manager import generate_compose_file
@@ -17,17 +18,26 @@ def config():
 @click.argument("password", required=False)
 def change_password(password):
     """Changes the Opal administrator password."""
-    cfg = load_config()
-    
+    env_file = Path.cwd() / ".env"
+
+    if not env_file.exists():
+        console.print("[yellow].env file not found.[/yellow]")
+        if not Confirm.ask("No password is set. Would you like to set one now?", default=True):
+            console.print("Aborted.")
+            return
+            
     new_password = password
     if not new_password:
         new_password = Prompt.ask("Enter the new Opal administrator password", password=True)
 
-    cfg["opal_admin_password"] = new_password
-    save_config(cfg)
-    console.print("[green]Password updated in configuration.[/green]")
-    generate_compose_file()
-    console.print("\nRun './easy-opal up' to apply the changes.")
+    if not new_password or not new_password.strip():
+        console.print("[bold red]Password cannot be empty.[/bold red]")
+        return
+        
+    env_file.write_text(f"OPAL_ADMIN_PASSWORD={new_password}")
+
+    console.print("[green]Password updated in .env file.[/green]")
+    console.print("\nRun './easy-opal restart' to apply the changes.")
 
 @config.command(name="change-port")
 @click.argument("port", type=int, required=False)

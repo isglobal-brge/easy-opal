@@ -12,6 +12,7 @@ from src.core.config_manager import (
     CONFIG_FILE,
     CERTS_DIR,
     DATA_DIR,
+    ENV_FILE,
 )
 from src.core.ssl_manager import generate_cert_with_mkcert, check_mkcert_installed
 from src.core.nginx_manager import generate_nginx_config
@@ -150,7 +151,17 @@ def setup(stack_name, hosts, port, password, ssl_strategy, ssl_cert_path, ssl_ke
         if stack_name: config["stack_name"] = stack_name
         if hosts: config["hosts"] = list(hosts)
         if port: config["opal_external_port"] = port
-        if password: config["opal_admin_password"] = password
+        if password:
+            # Save password to .env file for non-interactive setup
+            (Path.cwd() / ".env").write_text(f"OPAL_ADMIN_PASSWORD={password}")
+        elif is_interactive:
+            # Prompt for password and save to .env
+            password = Prompt.ask("Enter the Opal administrator password", default=config["opal_admin_password"], password=True)
+            (Path.cwd() / ".env").write_text(f"OPAL_ADMIN_PASSWORD={password}")
+        else:
+            # Handle case where password is not provided in non-interactive mode
+            console.print("[bold red]Opal administrator password must be provided in non-interactive mode using the --password flag.[/bold red]")
+            return
         
         # SSL non-interactive config
         config["ssl"]["strategy"] = ssl_strategy
@@ -159,6 +170,35 @@ def setup(stack_name, hosts, port, password, ssl_strategy, ssl_cert_path, ssl_ke
             config["ssl"]["key_path"] = ssl_key_path
         elif ssl_strategy == "letsencrypt":
             config["ssl"]["le_email"] = ssl_email
+
+    # Handle password separately for both modes
+    password_to_set = ""
+    if not is_interactive:
+        if not password:
+            console.print("[bold red]--password is required for non-interactive setup.[/bold red]")
+            return
+        password_to_set = password
+        (Path.cwd() / ".env").write_text(f"OPAL_ADMIN_PASSWORD={password_to_set}")
+        console.print(f"[green]Administrator password saved to .env file.[/green]")
+    else: # is_interactive
+        prompt_text = "Enter the Opal administrator password"
+        if ENV_FILE.exists():
+            prompt_text += " (leave blank to keep the current one)"
+        
+        password_to_set = Prompt.ask(prompt_text, password=True)
+
+        if password_to_set:
+            (Path.cwd() / ".env").write_text(f"OPAL_ADMIN_PASSWORD={password_to_set}")
+            console.print(f"[green]Administrator password updated in .env file.[/green]")
+        elif ENV_FILE.exists():
+            console.print("[green]Keeping existing password.[/green]")
+        else:
+            console.print("[bold red]Password cannot be empty for initial setup.[/bold red]")
+            return
+    
+    # Remove password from config object to avoid saving it in config.json
+    if "opal_admin_password" in config:
+        del config["opal_admin_password"]
 
     console.print("\n[cyan]Configuration complete. Proceeding with setup...[/cyan]")
     
@@ -221,7 +261,6 @@ def setup(stack_name, hosts, port, password, ssl_strategy, ssl_cert_path, ssl_ke
         config["ssl"]["key_path"] = le_key_path
         save_config(config)
         console.print("[green]Let's Encrypt certificate obtained successfully.[/green]")
-
 
     console.print("\n[bold green]Setup is complete![/bold green]")
     console.print("You can now start the Opal stack by running:")

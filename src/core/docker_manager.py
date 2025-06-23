@@ -61,7 +61,6 @@ def generate_compose_file():
     compose_string = compose_string.replace("${PROJECT_NAME}", config["stack_name"])
     # Use the first host as the primary for Opal's proxy settings
     compose_string = compose_string.replace("${OPAL_HOSTNAME}", config["hosts"][0])
-    compose_string = compose_string.replace("${OPAL_ADMIN_PASSWORD}", config["opal_admin_password"])
     compose_string = compose_string.replace("${OPAL_EXTERNAL_PORT}", str(config["opal_external_port"]))
     
     # Build the list of rock hosts for discovery
