@@ -19,7 +19,8 @@ def check_docker_installed():
     """Checks if Docker is installed and running."""
     try:
         subprocess.run(["docker", "--version"], check=True, capture_output=True)
-        subprocess.run(["docker-compose", "--version"], check=True, capture_output=True)
+        # Check for 'docker compose' functionality
+        subprocess.run(["docker", "compose", "version"], check=True, capture_output=True)
         # Check if docker daemon is running
         subprocess.run(["docker", "ps"], check=True, capture_output=True)
         return True
@@ -107,28 +108,28 @@ def generate_compose_file():
 
 
 def run_docker_compose(command: list):
-    """Helper function to run docker-compose commands."""
+    """Helper function to run docker compose commands."""
     if not check_docker_installed():
-        console.print("[bold red]Docker or docker-compose is not installed or not running.[/bold red]")
+        console.print("[bold red]Docker is not installed or not running.[/bold red]")
         console.print("Please install Docker Desktop and ensure it's running before using this tool.")
         sys.exit(1)
         
     config = load_config()
-    base_command = ["docker-compose", "--project-name", config["stack_name"]]
+    base_command = ["docker", "compose", "--project-name", config["stack_name"]]
     full_command = base_command + command
     
     console.print(f"[bold cyan]Running command: {' '.join(full_command)}[/bold cyan]")
     
     try:
         # By not capturing stdout/stderr, the subprocess will use the parent's terminal,
-        # giving the user the full interactive output from docker-compose.
+        # giving the user the full interactive output from docker compose.
         result = subprocess.run(full_command, check=False)
 
         if result.returncode != 0:
-            console.print(f"[bold red]Docker-compose command failed with exit code {result.returncode}[/bold red]")
+            console.print(f"[bold red]Docker compose command failed with exit code {result.returncode}[/bold red]")
             return False
     except FileNotFoundError:
-        console.print("[bold red]docker-compose command not found.[/bold red]")
+        console.print("[bold red]docker compose command not found.[/bold red]")
         sys.exit(1)
     except Exception as e:
         console.print(f"[bold red]An error occurred: {e}[/bold red]")

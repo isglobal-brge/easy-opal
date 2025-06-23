@@ -25,8 +25,8 @@ The installation process is streamlined using Poetry for robust dependency and e
 2.  **Run the main setup script**:
     Make the script executable and run it.
     ```bash
-    chmod +x setup.sh
-    ./setup.sh
+    chmod +x setup
+    ./setup
     ```
     This script will handle everything:
     - Check for system-level dependencies like Docker and Git.
@@ -42,13 +42,29 @@ All commands should be run from the root of the project directory using the `./e
 
 ### 1. Initial Setup
 
-To configure your Opal stack for the first time, run the interactive setup wizard:
+To configure your Opal stack for the first time, you can run the interactive setup wizard:
 ```bash
 ./easy-opal setup
 ```
 The wizard will guide you through the rest. For non-interactive setups, you can use flags:
 ```bash
-./easy-opal setup --stack-name my-opal --host localhost --ssl-strategy "self-signed" --yes
+# Example for a self-signed certificate
+./easy-opal setup \
+  --stack-name my-opal \
+  --host localhost --host 192.168.1.100 \
+  --port 443 \
+  --password "supersecret" \
+  --ssl-strategy "self-signed"
+
+# Example for a manual certificate
+./easy-opal setup \
+  --stack-name my-opal \
+  --host my-opal.domain.com \
+  --port 443 \
+  --password "supersecret" \
+  --ssl-strategy "manual" \
+  --ssl-cert-path /path/to/cert.crt \
+  --ssl-key-path /path/to/key.key
 ```
 
 ### 2. Stack Lifecycle Commands
