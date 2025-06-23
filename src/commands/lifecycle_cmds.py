@@ -33,45 +33,50 @@ def restart():
     docker_restart()
 
 @click.command()
-def reset():
+@click.option("--docker", "delete_docker", is_flag=True, help="Delete Docker containers, networks, and volumes.")
+@click.option("--configs", "delete_configs", is_flag=True, help="Delete configuration files.")
+@click.option("--certs", "delete_certs", is_flag=True, help="Delete SSL certificates.")
+@click.option("--data", "delete_data", is_flag=True, help="Delete local data directories (mongo, rock).")
+@click.option("--all", is_flag=True, help="Flag to delete everything. Equivalent to using all other flags.")
+@click.option("--yes", is_flag=True, help="Bypass the final confirmation prompt.")
+def reset(delete_docker, delete_configs, delete_certs, delete_data, all, yes):
     """Selectively resets parts of the Opal environment."""
-    console.print("\n[bold cyan]Interactive Reset Wizard[/bold cyan]")
-    console.print("Select which components you want to permanently delete.")
+    is_interactive = not any([delete_docker, delete_configs, delete_certs, delete_data, all])
 
-    delete_docker = Confirm.ask(
-        "[cyan]Delete all Docker containers, networks, and volumes (incl. Opal app data)?[/cyan]",
-        default=True,
-    )
-    delete_configs = Confirm.ask(
-        "[cyan]Delete configuration files (config.json, docker-compose.yml)?[/cyan]",
-        default=False,
-    )
-    delete_certs = Confirm.ask(
-        "[cyan]Delete SSL certificates directory?[/cyan]", default=False
-    )
-    delete_data = Confirm.ask(
-        "[cyan]Delete local data directories (mongo, rock profiles)? This is highly destructive.[/cyan]",
-        default=False,
-    )
+    if all:
+        delete_docker = delete_configs = delete_certs = delete_data = True
+
+    if is_interactive:
+        console.print("\n[bold cyan]Interactive Reset Wizard[/bold cyan]")
+        console.print("Select which components you want to permanently delete.")
+        delete_docker = Confirm.ask(
+            "[cyan]Delete all Docker containers, networks, and volumes (incl. Opal app data)?[/cyan]", default=True
+        )
+        delete_configs = Confirm.ask(
+            "[cyan]Delete configuration files (config.json, docker-compose.yml)?[/cyan]", default=False
+        )
+        delete_certs = Confirm.ask(
+            "[cyan]Delete SSL certificates directory?[/cyan]", default=False
+        )
+        delete_data = Confirm.ask(
+            "[cyan]Delete local data directories (mongo, rock profiles)? This is highly destructive.[/cyan]", default=False
+        )
 
     if not any([delete_docker, delete_configs, delete_certs, delete_data]):
         console.print("[yellow]Nothing selected. Reset aborted.[/yellow]")
         return
 
     console.print("\n[bold yellow]Summary of actions to be performed:[/bold yellow]")
-    if delete_docker:
-        console.print("- Remove all Docker containers, networks, and named volumes (Opal app data).")
-    if delete_configs:
-        console.print("- Delete config.json and docker-compose.yml.")
-    if delete_certs:
-        console.print("- Delete the SSL certificates directory.")
-    if delete_data:
-        console.print("- Delete local data directories (mongo, rock).")
+    if delete_docker: console.print("- Remove all Docker containers, networks, and named volumes (Opal app data).")
+    if delete_configs: console.print("- Delete config.json and docker-compose.yml.")
+    if delete_certs: console.print("- Delete the SSL certificates directory.")
+    if delete_data: console.print("- Delete local data directories (mongo, rock).")
 
-    if not Confirm.ask(
-        "\n[bold red]Are you sure you want to proceed with the selected actions?[/bold red]",
-        default=False,
-    ):
+    proceed = yes or Confirm.ask(
+        "\n[bold red]Are you sure you want to proceed with the selected actions?[/bold red]", default=False
+    )
+    
+    if not proceed:
         console.print("[yellow]Reset aborted by user.[/yellow]")
         return
 

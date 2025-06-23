@@ -82,6 +82,8 @@ The wizard will guide you through:
   ```bash
   python3 easy-opal.py profile add
   ```
+  After adding a profile, you will be prompted to restart the stack to apply the changes.
+
 - **Remove a profile**: Lists the current profiles and prompts you to select one to remove. The corresponding container will be stopped and removed automatically.
   ```bash
   python3 easy-opal.py profile remove
