@@ -59,13 +59,13 @@ def add(repository, image, tag, name, yes):
 
     console.print(f"\n[green]Profile '{name_val}' with image '{full_image_name}:{tag_val}' has been added to config.[/green]")
 
-    apply_changes = yes or (is_interactive and Confirm.ask("\n[cyan]Apply changes and restart the stack now?[/cyan]", default=True))
+    apply_changes = yes or (is_interactive and Confirm.ask("\n[cyan]Apply changes and restart the stack now by running 'up'?[/cyan]", default=True))
     
     if apply_changes:
-        console.print("\n[cyan]Applying changes to the running stack... (This will stop and then restart all services)[/cyan]")
+        console.print("\n[cyan]Applying changes to the running stack...[/cyan]")
         
-        docker_down()
-        success = docker_up()
+        # docker_restart handles the down/up sequence
+        success = docker_restart()
 
         if not success:
             console.print("[bold red]Failed to start the new profile. The image might not exist.[/bold red]")
@@ -127,9 +127,9 @@ def remove(name, yes):
     save_config(config)
     generate_compose_file()
 
-    console.print(f"[green]Profile '{profile_to_remove['name']}' removed from configuration.[/green]")
+    console.print(f"✅ Profile '{profile_to_remove['name']}' removed.")
 
-    apply_changes = yes or Confirm.ask("\n[cyan]Apply changes and remove the container now?[/cyan]", default=True)
+    apply_changes = yes or Confirm.ask("\n[cyan]Apply changes and restart the stack now by running 'up'?[/cyan]", default=True)
 
     if apply_changes:
         console.print("\n[cyan]Applying changes to the running stack...[/cyan]")

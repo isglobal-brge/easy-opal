@@ -2,7 +2,7 @@ import click
 from rich.console import Console
 
 from src.commands.setup_cmd import setup
-from src.commands.lifecycle_cmds import up, down, restart, reset, status
+from src.commands.lifecycle_cmds import up, down, reset, status
 from src.commands.profile_cmds import profile
 from src.commands.config_cmds import config
 from src.commands.cert_cmds import cert
@@ -22,7 +22,6 @@ def main():
 main.add_command(setup)
 main.add_command(up)
 main.add_command(down)
-main.add_command(restart)
 main.add_command(reset)
 main.add_command(status)
 main.add_command(profile)

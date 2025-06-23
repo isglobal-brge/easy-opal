@@ -16,10 +16,11 @@ console = Console()
 
 @click.command()
 def up():
-    """Starts the Opal stack in detached mode."""
+    """Ensures the Opal stack is running, restarting it if necessary."""
     if not ensure_password_is_set(): return
-    console.print("[bold cyan]Starting the Opal stack...[/bold cyan]")
-    docker_up()
+    console.print("[bold cyan]Ensuring the Opal stack is up and running...[/bold cyan]")
+    # The docker_restart function already handles the down/up sequence.
+    docker_restart()
 
 @click.command()
 def down():
@@ -27,13 +28,6 @@ def down():
     if not ensure_password_is_set(): return
     console.print("[bold cyan]Stopping the Opal stack...[/bold cyan]")
     docker_down()
-
-@click.command()
-def restart():
-    """Restarts the Opal stack."""
-    if not ensure_password_is_set(): return
-    console.print("[bold cyan]Restarting the Opal stack...[/bold cyan]")
-    docker_restart()
 
 @click.command()
 @click.option("--containers", "delete_containers", is_flag=True, help="Stop and remove Docker containers and networks.")

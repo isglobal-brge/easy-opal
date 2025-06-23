@@ -45,7 +45,7 @@ def change_password(password):
     env_file.write_text(f"OPAL_ADMIN_PASSWORD={new_password}")
 
     console.print("[green]Password updated in .env file.[/green]")
-    console.print("\nRun './easy-opal restart' to apply the changes.")
+    console.print("\nRun './easy-opal up' to apply the changes.")
 
 @config.command(name="change-port")
 @click.argument("port", type=int, required=False)
@@ -137,7 +137,7 @@ def import_config(import_string, yes):
         generate_compose_file()
         
         console.print("\n[green]✅ Configuration successfully imported.[/green]")
-        console.print("Run './easy-opal restart' to apply the new configuration.")
+        console.print("Run './easy-opal up' to apply the new configuration.")
         
     except Exception as e:
         console.print(f"[bold red]An error occurred while applying the new configuration: {e}[/bold red]")
@@ -247,7 +247,7 @@ def restore_backup(snapshot_id, yes):
                     shutil.copy(backup_file, Path.cwd() / filename)
 
             console.print("[green]Configuration successfully restored.[/green]")
-            console.print("[yellow]You may need to run './easy-opal restart' for all changes to take effect.[/yellow]")
+            console.print("[yellow]You may need to run './easy-opal up' for all changes to take effect.[/yellow]")
         except Exception as e:
             console.print(f"[bold red]An error occurred during restore: {e}[/bold red]")
     else:

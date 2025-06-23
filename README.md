@@ -77,11 +77,7 @@ The wizard will guide you through the rest. For non-interactive setups, you can 
   ```bash
   ./easy-opal down
   ```
-- **Restart the stack**:
-  ```bash
-  ./easy-opal restart
-  ```
-- **Check the status**:
+- **Get stack status**:
   ```bash
   ./easy-opal status
   ```
