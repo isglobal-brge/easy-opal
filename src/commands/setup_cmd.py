@@ -78,7 +78,6 @@ def setup(stack_name, hosts, port, password, ssl_strategy, ssl_cert_path, ssl_ke
         console.print("[cyan]1. General Configuration[/cyan]")
         config["stack_name"] = Prompt.ask("Enter the stack name", default=config["stack_name"])
         config["opal_external_port"] = IntPrompt.ask("Enter the external HTTPS port for Opal", default=config["opal_external_port"])
-        config["opal_admin_password"] = Prompt.ask("Enter the Opal administrator password", default=config["opal_admin_password"], password=True)
 
         # --- Collect SSL Strategy ---
         console.print("\n[cyan]2. SSL Certificate Configuration[/cyan]")
@@ -171,40 +170,43 @@ def setup(stack_name, hosts, port, password, ssl_strategy, ssl_cert_path, ssl_ke
         elif ssl_strategy == "letsencrypt":
             config["ssl"]["le_email"] = ssl_email
 
-    # Handle password separately for both modes
-    password_to_set = ""
-    if not is_interactive:
-        if not password:
-            console.print("[bold red]--password is required for non-interactive setup.[/bold red]")
-            return
-        password_to_set = password
-        (Path.cwd() / ".env").write_text(f"OPAL_ADMIN_PASSWORD={password_to_set}")
-        console.print(f"[green]Administrator password saved to .env file.[/green]")
-    else: # is_interactive
-        prompt_text = "Enter the Opal administrator password"
+    # --- Password Handling ---
+    if is_interactive:
         if ENV_FILE.exists():
-            prompt_text += " (leave blank to keep the current one)"
-        
-        password_to_set = Prompt.ask(prompt_text, password=True)
-
-        if password_to_set:
-            (Path.cwd() / ".env").write_text(f"OPAL_ADMIN_PASSWORD={password_to_set}")
-            console.print(f"[green]Administrator password updated in .env file.[/green]")
-        elif ENV_FILE.exists():
-            console.print("[green]Keeping existing password.[/green]")
+            if Confirm.ask("\n[yellow]An administrator password is already set. Do you want to change it?[/yellow]", default=False):
+                new_password = Prompt.ask("Enter the new Opal administrator password", password=True)
+                if new_password.strip():
+                    (ENV_FILE).write_text(f"OPAL_ADMIN_PASSWORD={new_password}")
+                    console.print("[green]Password updated.[/green]")
+                else:
+                    console.print("[bold red]Password cannot be empty.[/bold red]")
+                    return
+            else:
+                console.print("[green]Keeping existing password.[/green]")
         else:
-            console.print("[bold red]Password cannot be empty for initial setup.[/bold red]")
+            new_password = Prompt.ask("\nEnter the Opal administrator password", password=True)
+            if new_password.strip():
+                (ENV_FILE).write_text(f"OPAL_ADMIN_PASSWORD={new_password}")
+                console.print("[green]Password saved.[/green]")
+            else:
+                console.print("[bold red]Password cannot be empty.[/bold red]")
+                return
+    else: # Non-interactive
+        if not password:
+            console.print("[bold red]--password flag is required for non-interactive setup.[/bold red]")
             return
+        (ENV_FILE).write_text(f"OPAL_ADMIN_PASSWORD={password}")
+        console.print("[green]Administrator password saved to .env file.[/green]")
+
+    # --- Final Steps ---
     
-    # Remove password from config object to avoid saving it in config.json
+    # Remove password from config object just in case it's there from defaults
     if "opal_admin_password" in config:
         del config["opal_admin_password"]
 
     console.print("\n[cyan]Configuration complete. Proceeding with setup...[/cyan]")
     
-    # --- Setup Execution ---
-
-    # 1. Create necessary directories (including for letsencrypt)
+    # 1. Create necessary directories
     ensure_directories_exist()
     le_path = DATA_DIR / "letsencrypt"
     le_path.mkdir(exist_ok=True)

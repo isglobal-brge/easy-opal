@@ -79,7 +79,6 @@ def ensure_directories_exist():
     """Ensures that all necessary data and backup directories exist."""
     BACKUPS_DIR.mkdir(exist_ok=True)
     DATA_DIR.mkdir(exist_ok=True)
-    MONGO_DATA_DIR.mkdir(exist_ok=True)
     NGINX_DIR.mkdir(exist_ok=True)
     CERTS_DIR.mkdir(exist_ok=True)
     NGINX_CONF_DIR.mkdir(exist_ok=True) 
