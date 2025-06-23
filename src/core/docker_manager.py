@@ -74,13 +74,13 @@ def generate_compose_file():
     compose_data = yaml.load(compose_string)
 
     # Add rock profiles
+    if "volumes" not in compose_data:
+        compose_data["volumes"] = {}
+
     for profile in config.get("profiles", []):
         service_name = profile["name"]
         cluster_name = "default" if service_name == "rock" else service_name
-
-        # Create a dedicated volume directory for the profile
-        rock_home_path = DATA_DIR / "rock" / service_name
-        rock_home_path.mkdir(parents=True, exist_ok=True)
+        volume_name = f"{config['stack_name']}-{service_name}-data"
 
         compose_data["services"][service_name] = {
             "image": f"{profile['image']}:{profile['tag']}",
@@ -97,9 +97,10 @@ def generate_compose_file():
                 "ROCK_USER_NAME=user",
                 "ROCK_USER_PASSWORD=password",
             ],
-            "volumes": [f"./{rock_home_path.as_posix()}:/srv"],
+            "volumes": [f"{volume_name}:/srv"],
             "depends_on": ["opal"],
         }
+        compose_data["volumes"][volume_name] = None
 
     with open(DOCKER_COMPOSE_PATH, "w") as f:
         yaml.dump(compose_data, f)

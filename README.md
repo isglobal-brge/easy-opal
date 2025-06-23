@@ -145,3 +145,15 @@ The wizard will guide you through the rest. For non-interactive setups, you can 
   ```bash
   ./easy-opal update
   ```
+
+## Data Persistence: Volumes vs. Local Directories
+
+This tool uses a hybrid approach for data persistence to balance ease of management and Docker best practices.
+
+-   **Local Directories (`./data`)**:
+    -   **What**: Holds NGINX configuration, SSL certificates, and Let's Encrypt challenge data.
+    -   **Why**: These are critical configuration files that you might need to inspect, modify, back up, or provide yourself (e.g., custom SSL certificates). Storing them in a local directory makes them transparent and easily accessible.
+
+-   **Named Docker Volumes**:
+    -   **What**: Used for all application-generated data, including the MongoDB database, Opal server data, and all Rock profile data.
+    -   **Why**: This is the recommended Docker approach for managing the state of stateful applications. Docker manages the lifecycle of this data, which abstracts it from the host machine's filesystem, improves I/O performance (especially on Docker Desktop for Mac and Windows), and simplifies data management across different environments.
