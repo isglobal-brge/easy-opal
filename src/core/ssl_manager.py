@@ -18,12 +18,12 @@ def check_mkcert_installed():
 def generate_cert_with_mkcert(cert_path: Path, key_path: Path):
     """
     Generates a locally-trusted SSL certificate using mkcert.
-    Assumes the local CA is already installed (handled by setup.sh).
+    Assumes the local CA is already installed (handled by ./setup).
     """
     if not check_mkcert_installed():
         console.print("[bold red]mkcert is not installed.[/bold red]")
         console.print("Please run the main setup script first to install system dependencies:")
-        console.print("[bold]./setup.sh[/bold]")
+        console.print("[bold]./setup[/bold]")
         sys.exit(1)
 
     config = load_config()

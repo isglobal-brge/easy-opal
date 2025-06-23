@@ -91,7 +91,7 @@ def setup(stack_name, hosts, port, password, ssl_strategy, ssl_cert_path, ssl_ke
         # --- Collect Host and Cert-specific Info ---
         if strategy == "self-signed":
             if not check_mkcert_installed():
-                console.print("[bold red]mkcert is not installed. Please run './setup.sh' to install it.[/bold red]")
+                console.print("[bold red]mkcert is not installed. Please run './setup' to install it.[/bold red]")
                 return
 
             hosts_list = ["localhost", "127.0.0.1"]
@@ -225,4 +225,4 @@ def setup(stack_name, hosts, port, password, ssl_strategy, ssl_cert_path, ssl_ke
 
     console.print("\n[bold green]Setup is complete![/bold green]")
     console.print("You can now start the Opal stack by running:")
-    console.print("[bold yellow]./easy-opal.py up[/bold yellow]")
+    console.print("[bold yellow]./easy-opal up[/bold yellow]")

@@ -11,7 +11,7 @@ cd "$(dirname "$0")"
 if ! command -v poetry &> /dev/null; then
     echo "❌ [ERROR] 'poetry' could not be found."
     echo "Please run the setup script first to install it:"
-    echo "./setup.sh"
+    echo "./setup"
     exit 1
 fi
 

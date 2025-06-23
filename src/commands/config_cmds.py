@@ -27,7 +27,7 @@ def change_password(password):
     save_config(cfg)
     console.print("[green]Password updated in configuration.[/green]")
     generate_compose_file()
-    console.print("\nRun './easy-opal.py up' to apply the changes.")
+    console.print("\nRun './easy-opal up' to apply the changes.")
 
 @config.command(name="change-port")
 @click.argument("port", type=int, required=False)
@@ -43,7 +43,7 @@ def change_port(port):
     save_config(cfg)
     console.print("[green]Port updated in configuration.[/green]")
     generate_compose_file()
-    console.print("\nRun './easy-opal.py up' to apply the changes.")
+    console.print("\nRun './easy-opal up' to apply the changes.")
 
 @config.command(name="show")
 def show_config():

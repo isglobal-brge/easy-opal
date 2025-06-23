@@ -4,7 +4,7 @@ services:
     container_name: ${PROJECT_NAME}-mongo
     restart: always
     volumes:
-      - ./data/mongo:/data/db
+      - opal_mongo_data:/data/db
     networks:
       - opal-net
 
@@ -23,6 +23,7 @@ services:
       - OPAL_PROXY_SECURE=true
       - OPAL_PROXY_HOST=${OPAL_HOSTNAME}
       - OPAL_PROXY_PORT=${OPAL_EXTERNAL_PORT}
+      - CSRF_ALLOWED=*
       - ROCK_HOSTS=${OPAL_ROCK_HOSTS}
       - ROCK_DEFAULT_ADMINISTRATOR_USERNAME=administrator
       - ROCK_DEFAULT_ADMINISTRATOR_PASSWORD=password
@@ -39,7 +40,6 @@ services:
     restart: always
     ports:
       - "${OPAL_EXTERNAL_PORT}:443"
-      - "80:80"
     volumes:
       - ./data/nginx/conf/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./data/nginx/certs:/etc/nginx/certs:ro
