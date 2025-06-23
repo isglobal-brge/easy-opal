@@ -38,109 +38,119 @@ The installation process is streamlined using Poetry for robust dependency and e
 
 ## Usage
 
-All commands should be run from the root of the project directory using the `./easy-opal` wrapper script.
+All commands are run from the project root directory using the `./easy-opal` wrapper script.
 
-### 1. Initial Setup
+### `setup`
 
-To configure your Opal stack for the first time, you can run the interactive setup wizard:
+The main command to configure or re-configure a stack. Running it without flags starts an interactive wizard.
+
+-   `./easy-opal setup`
+
+**Flags:**
+
+-   `--stack-name TEXT`: The name of the Docker stack (e.g., `my-opal`).
+-   `--host TEXT`: A hostname or IP for Opal. Can be used multiple times.
+-   `--port INTEGER`: The external HTTPS port for Opal.
+-   `--password TEXT`: The Opal administrator password.
+-   `--ssl-strategy [self-signed|letsencrypt|manual]`: The SSL strategy to use.
+-   `--ssl-cert-path TEXT`: Path to your certificate file (for 'manual' strategy).
+-   `--ssl-key-path TEXT`: Path to your private key file (for 'manual' strategy).
+-   `--ssl-email TEXT`: Email for Let's Encrypt renewal notices.
+-   `--yes`: Bypasses all interactive prompts. Essential for scripting.
+-   `--reset-containers`: Non-interactively stops and removes Docker containers.
+-   `--reset-volumes`: Non-interactively deletes Docker volumes (all application data).
+-   `--reset-configs`: Non-interactively deletes configuration files.
+-   `--reset-certs`: Non-interactively deletes SSL certificates.
+-   `--reset-secrets`: Non-interactively deletes the `.env` file.
+
+**Example (Non-Interactive):**
+
 ```bash
-./easy-opal setup
+./easy-opal setup \
+  --stack-name new-stack \
+  --host localhost \
+  --port 8443 \
+  --password "newpass" \
+  --ssl-strategy "self-signed" \
+  --yes \
+  --reset-containers
 ```
-The wizard will guide you through the rest. For non-interactive setups, you can use flags:
+
+---
+
+### `reset`
+
+Performs a factory reset of the environment. Running it without flags starts an interactive wizard.
+
+-   `./easy-opal reset`
+
+**Flags:**
+
+-   `--containers`: Stop and remove Docker containers and networks.
+-   `--volumes`: Delete Docker volumes (highly destructive).
+-   `--configs`: Delete configuration files.
+-   `--certs`: Delete SSL certificates.
+-   `--secrets`: Delete the `.env` file.
+-   `--all`: Selects all of the above options.
+-   `--yes`: Bypasses the final confirmation prompt.
+
+**Example (Non-Interactive):**
+
 ```bash
-# Example for a self-signed certificate
-./easy-opal setup \
-  --stack-name my-opal \
-  --host localhost --host 192.168.1.100 \
-  --port 443 \
-  --password "supersecret" \
-  --ssl-strategy "self-signed"
-
-# Example for a manual certificate
-./easy-opal setup \
-  --stack-name my-opal \
-  --host my-opal.domain.com \
-  --port 443 \
-  --password "supersecret" \
-  --ssl-strategy "manual" \
-  --ssl-cert-path /path/to/cert.crt \
-  --ssl-key-path /path/to/key.key
+# Non-interactively delete everything
+./easy-opal reset --all --yes
 ```
 
-### 2. Stack Lifecycle Commands
+---
 
-- **Start the stack**:
-  ```bash
-  ./easy-opal up
-  ```
-- **Stop the stack**:
-  ```bash
-  ./easy-opal down
-  ```
-- **Get stack status**:
-  ```bash
-  ./easy-opal status
-  ```
-- **Factory Reset**: An interactive wizard to selectively delete components.
-  ```bash
-  # Interactive wizard
-  ./easy-opal reset
+### Stack Lifecycle
 
-  # Non-interactive: Delete everything
-  ./easy-opal reset --all --yes
-  ```
+-   `./easy-opal up`: Ensures the stack is running. If it's already running, it will be stopped and started again to apply any changes.
+-   `./easy-opal down`: Stops the stack's containers.
+-   `./easy-opal status`: Shows the status of the running containers.
 
-### 3. Managing Rock Profiles
+---
 
-- **Add a profile**:
-  ```bash
-  # Interactive wizard
-  ./easy-opal profile add
+### `config`
 
-  # Non-interactive
-  ./easy-opal profile add --repository datashield --image rock-mediation --name rock-beta --yes
-  ```
-- **Remove a profile**:
-  ```bash
-  # Interactive wizard
-  ./easy-opal profile remove
+Manage the stack's configuration and snapshots.
 
-  # Non-interactive
-  ./easy-opal profile remove rock-beta --yes
-  ```
-- **List profiles**:
-  ```bash
-  ./easy-opal profile list
-  ```
+-   `./easy-opal config show`: Displays the current `config.json`.
+-   `./easy-opal config change-password [PASSWORD]`: Changes the Opal administrator password.
+-   `./easy-opal config change-port [PORT]`: Changes the external port for NGINX.
+-   `./easy-opal config restore [SNAPSHOT_ID]`: Restore a configuration from a snapshot.
+    -   `--yes`: Bypasses confirmation prompts.
+-   `./easy-opal config export`: Generates a compressed, shareable string of your current configuration.
+-   `./easy-opal config import [STRING]`: Imports a configuration from an exported string.
+    -   `--yes`: Bypasses confirmation prompts.
 
-### 4. Configuration Management
+---
 
-- **Show configuration**:
-  ```bash
-  ./easy-opal config show
-  ```
-- **Change password**:
-  ```bash
-  ./easy-opal config change-password "new-secret"
-  ```
-- **Change port**:
-  ```bash
-  ./easy-opal config change-port 8443
-  ```
+### `profile`
 
-### 5. Certificate Management
+Manage the Rock server profiles in your stack.
 
-- **Regenerate certificates**:
-  ```bash
-  ./easy-opal cert regenerate
-  ```
+-   `./easy-opal profile list`: Lists all configured profiles.
+-   `./easy-opal profile add`: Interactively add a new Rock profile.
+    -   `--repository TEXT`: The Docker Hub repository (e.g., `datashield`).
+    -   `--image TEXT`: The image name (e.g., `rock-base`).
+    -   `--tag TEXT`: The image tag (default: `latest`).
+    -   `--name TEXT`: The service name for this profile.
+    -   `--yes`: Bypasses confirmation prompts.
+-   `./easy-opal profile remove [NAME]`: Remove a profile by name or interactively.
+    -   `--yes`: Bypasses confirmation prompts.
 
-### 6. Updating the Tool
+---
 
-- **Check for and apply updates**:
-  ```bash
-  ./easy-opal update
-  ```
+### `cert`
+
+-   `./easy-opal cert regenerate`: Manually regenerates self-signed certificates.
+
+---
+
+### `update`
+
+-   `./easy-opal update`: Checks for and pulls the latest version of the tool from Git.
 
 ## Data Persistence: Volumes vs. Local Directories
 
@@ -152,4 +162,4 @@ This tool uses a hybrid approach for data persistence to balance ease of managem
 
 -   **Named Docker Volumes**:
     -   **What**: Used for all application-generated data, including the MongoDB database, Opal server data, and all Rock profile data.
-    -   **Why**: This is the recommended Docker approach for managing the state of stateful applications. Docker manages the lifecycle of this data, which abstracts it from the host machine's filesystem, improves I/O performance (especially on Docker Desktop for Mac and Windows), and simplifies data management across different environments.
+    -   **Why**: This is the recommended Docker approach for managing the state of stateful applications. Docker manages the lifecycle of this data, which abstracts it from the host machine's filesystem, improves I/O performance, and simplifies data management across different environments.
