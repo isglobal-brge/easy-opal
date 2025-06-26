@@ -4,6 +4,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any
+import json
+import ipaddress
 
 from ruamel.yaml import YAML
 from rich.console import Console
@@ -23,6 +25,27 @@ def check_docker_installed():
         
         # Check if docker daemon is running
         subprocess.run(["docker", "ps"], check=True, capture_output=True)
+        
+        # Check Docker version for compatibility warnings
+        docker_version = get_docker_version()
+        if docker_version:
+            # Parse major.minor version for comparison
+            try:
+                major, minor = map(int, docker_version.split('.')[:2])
+                version_num = major * 100 + minor  # e.g., 20.10 -> 2010
+                
+                if version_num < 113:  # Docker < 1.13
+                    console.print(f"[bold red]Warning: Docker version {docker_version} is not supported.[/bold red]")
+                    console.print("Please upgrade to Docker 17.06+ for best compatibility.")
+                    return False
+                elif version_num < 1706:  # Docker 1.13-17.05
+                    console.print(f"[bold yellow]Warning: Docker version {docker_version} has limited support.[/bold yellow]")
+                    console.print("Some features may not work properly. Consider upgrading to Docker 17.06+.")
+                elif version_num < 2010:  # Docker 17.06-20.09
+                    console.print(f"[dim]Docker version {docker_version} detected. Some newer features may be limited.[/dim]")
+            except (ValueError, AttributeError):
+                # If we can't parse the version, continue anyway
+                pass
         
         # Check for Docker Compose - try V2 first, then fall back to V1
         compose_available = False
@@ -139,6 +162,26 @@ def generate_compose_file():
         }
         compose_data["volumes"][volume_name] = None
 
+    # Dynamically assign subnet to avoid conflicts
+    console.print("[cyan]Finding available subnet for network...[/cyan]")
+    subnet, gateway = find_available_subnet()
+    
+    if subnet and gateway:
+        console.print(f"[green]Using subnet: {subnet}[/green]")
+        # Add IPAM configuration to the network
+        if "ipam" not in compose_data["networks"]["opal-net"]:
+            compose_data["networks"]["opal-net"]["ipam"] = {
+                "driver": "default",
+                "config": [
+                    {
+                        "subnet": subnet,
+                        "gateway": gateway
+                    }
+                ]
+            }
+    else:
+        console.print("[yellow]Using Docker auto-assigned subnet[/yellow]")
+
     with open(DOCKER_COMPOSE_PATH, "w") as f:
         yaml.dump(compose_data, f)
 
@@ -231,12 +274,30 @@ def docker_reset(project_name: str = None):
 def docker_status(project_name: str = None):
     return run_docker_compose(["ps"], project_name=project_name)
 
+def get_docker_version():
+    """Gets the Docker version for compatibility checks."""
+    try:
+        result = subprocess.run(["docker", "--version"], check=True, capture_output=True, text=True)
+        # Parse version from output like "Docker version 20.10.8, build 3967b7d"
+        version_str = result.stdout.strip()
+        if "version" in version_str:
+            # Extract version number (e.g., "20.10.8")
+            import re
+            match = re.search(r'version\s+(\d+\.\d+\.\d+)', version_str)
+            if match:
+                return match.group(1)
+        return None
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
 def pull_docker_image(image_name: str):
     """Pulls a Docker image and returns True on success, False on failure."""
     console.print(f"[cyan]Attempting to pull image: {image_name}...[/cyan]")
     try:
-        # Use a more specific command to just pull an image.
-        result = subprocess.run(["docker", "image", "pull", image_name], check=False, capture_output=True, text=True)
+        # Use the older, more compatible 'docker pull' syntax that works across all Docker versions
+        # instead of 'docker image pull' which was introduced in Docker 1.13
+        result = subprocess.run(["docker", "pull", image_name], check=False, capture_output=True, text=True)
         
         if result.returncode != 0:
             console.print(f"[bold red]Failed to pull image '{image_name}'.[/bold red]")
@@ -249,4 +310,67 @@ def pull_docker_image(image_name: str):
         return False
         
     console.print(f"[green]Successfully pulled image: {image_name}[/green]")
-    return True 
+    return True
+
+def find_available_subnet():
+    """Finds an available subnet for the Docker network by checking existing networks."""
+    try:
+        # Get all existing Docker networks
+        result = subprocess.run(["docker", "network", "ls", "--format", "{{.ID}}"], 
+                              check=True, capture_output=True, text=True)
+        
+        # Handle empty output or whitespace-only output
+        if not result.stdout or not result.stdout.strip():
+            network_ids = []
+        else:
+            network_ids = [nid.strip() for nid in result.stdout.strip().split('\n') if nid.strip()]
+        
+        used_subnets = set()
+        
+        # Inspect each network to get its subnet
+        for network_id in network_ids:
+            if network_id:  # Double-check that network_id is not empty
+                try:
+                    inspect_result = subprocess.run(["docker", "network", "inspect", network_id], 
+                                                  check=True, capture_output=True, text=True)
+                    network_data = json.loads(inspect_result.stdout)
+                    
+                    # Check if network_data is a list and not None
+                    if network_data and isinstance(network_data, list):
+                        for network in network_data:
+                            if network and 'IPAM' in network and network['IPAM'] and 'Config' in network['IPAM']:
+                                config_list = network['IPAM']['Config']
+                                if config_list:  # Make sure Config is not None
+                                    for config in config_list:
+                                        if config and 'Subnet' in config:
+                                            try:
+                                                subnet = ipaddress.IPv4Network(config['Subnet'], strict=False)
+                                                used_subnets.add(subnet)
+                                            except (ipaddress.AddressValueError, ValueError):
+                                                pass  # Skip invalid subnets
+                except (subprocess.CalledProcessError, json.JSONDecodeError):
+                    continue  # Skip networks we can't inspect
+        
+        # Try to find an available subnet in the 172.16.0.0/12 range
+        # This covers 172.16.x.x to 172.31.x.x
+        for third_octet in range(16, 32):  # 172.16 to 172.31
+            candidate_subnet = ipaddress.IPv4Network(f"172.{third_octet}.0.0/16")
+            
+            # Check if this subnet overlaps with any existing ones
+            if not any(candidate_subnet.overlaps(used_subnet) for used_subnet in used_subnets):
+                return str(candidate_subnet), str(candidate_subnet.network_address + 1)
+        
+        # If no 172.x subnet is available, try 192.168.x.0/24 range
+        for third_octet in range(100, 255):  # 192.168.100 to 192.168.254
+            candidate_subnet = ipaddress.IPv4Network(f"192.168.{third_octet}.0/24")
+            
+            if not any(candidate_subnet.overlaps(used_subnet) for used_subnet in used_subnets):
+                return str(candidate_subnet), str(candidate_subnet.network_address + 1)
+        
+        # Last resort: let Docker auto-assign
+        console.print("[yellow]Warning: Could not find available subnet. Using Docker auto-assignment.[/yellow]")
+        return None, None
+        
+    except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError) as e:
+        console.print(f"[yellow]Warning: Could not detect existing networks ({e}). Using Docker auto-assignment.[/yellow]")
+        return None, None 

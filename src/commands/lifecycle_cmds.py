@@ -8,6 +8,7 @@ from src.core.docker_manager import (
     docker_restart,
     docker_reset,
     docker_status,
+    generate_compose_file,
     DOCKER_COMPOSE_PATH,
 )
 from src.core.config_manager import CONFIG_FILE, CERTS_DIR, DATA_DIR, ensure_password_is_set
@@ -18,6 +19,17 @@ console = Console()
 def up():
     """Ensures the Opal stack is running, restarting it if necessary."""
     if not ensure_password_is_set(): return
+    
+    # Check if docker-compose.yml exists, regenerate if missing
+    if not DOCKER_COMPOSE_PATH.exists():
+        console.print("[yellow]docker-compose.yml not found. Regenerating from configuration...[/yellow]")
+        try:
+            generate_compose_file()
+        except Exception as e:
+            console.print(f"[bold red]Failed to generate docker-compose.yml: {e}[/bold red]")
+            console.print("Please run './easy-opal setup' to fix your configuration.")
+            return
+    
     console.print("[bold cyan]Ensuring the Opal stack is up and running...[/bold cyan]")
     # The docker_restart function already handles the down/up sequence.
     docker_restart()

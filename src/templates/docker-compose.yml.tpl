@@ -76,11 +76,6 @@ networks:
       com.docker.network.bridge.name: opal-br0
       com.docker.network.bridge.enable_icc: "true"
       com.docker.network.bridge.enable_ip_masquerade: "true"
-    ipam:
-      driver: default
-      config:
-        - subnet: 172.20.0.0/16
-          gateway: 172.20.0.1
 
 volumes:
   opal_mongo_data:
