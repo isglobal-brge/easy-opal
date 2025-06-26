@@ -5,7 +5,8 @@ import shutil
 from src.core.config_manager import NGINX_CONF_DIR, load_config
 
 console = Console()
-NGINX_TEMPLATE_PATH = Path("src/templates/nginx.conf.tpl")
+HTTPS_TEMPLATE_PATH = Path("src/templates/nginx.conf.tpl")
+HTTP_TEMPLATE_PATH = Path("src/templates/nginx-http.conf.tpl")
 MAINTENANCE_PAGE_TEMPLATE_PATH = Path("src/templates/maintenance.html")
 
 def generate_nginx_config():
@@ -13,17 +14,28 @@ def generate_nginx_config():
     Generates the nginx.conf file and copies the maintenance page.
     """
     config = load_config()
-    if not NGINX_TEMPLATE_PATH.exists():
-        console.print(f"[bold red]NGINX template not found at {NGINX_TEMPLATE_PATH}[/bold red]")
-        return
+    strategy = config.get("ssl", {}).get("strategy")
+
+    if strategy == "reverse-proxy":
+        template_path = HTTP_TEMPLATE_PATH
+        if not template_path.exists():
+            console.print(f"[bold red]NGINX HTTP template not found at {template_path}[/bold red]")
+            return
+    else:
+        template_path = HTTPS_TEMPLATE_PATH
+        if not template_path.exists():
+            console.print(f"[bold red]NGINX HTTPS template not found at {template_path}[/bold red]")
+            return
 
     console.print("[cyan]Generating NGINX configuration...[/cyan]")
 
-    with open(NGINX_TEMPLATE_PATH, "r") as f:
+    with open(template_path, "r") as f:
         template = f.read()
-
-    server_names = " ".join(config["hosts"])
-    template = template.replace("${OPAL_HOSTNAME}", server_names)
+    
+    # Only substitute server names if we are using an HTTPS template
+    if strategy != "reverse-proxy":
+        server_names = " ".join(config["hosts"])
+        template = template.replace("${OPAL_HOSTNAME}", server_names)
 
     output_path = NGINX_CONF_DIR / "nginx.conf"
     with open(output_path, "w") as f:

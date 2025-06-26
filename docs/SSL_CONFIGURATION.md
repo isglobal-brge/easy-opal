@@ -62,4 +62,24 @@ This strategy is for advanced users who want to use a certificate from a differe
 2.  `easy-opal` will then copy these files into the `./data/nginx/certs/` directory.
 3.  The NGINX container will be configured to use these copied certificates.
 
-> **Important:** With this method, you are responsible for managing the certificate's lifecycle, including renewals. The tool will not handle it for you. 
+> **Important:** With this method, you are responsible for managing the certificate's lifecycle, including renewals. The tool will not handle it for you.
+
+---
+
+## 4. `reverse-proxy` (Advanced)
+
+This strategy is for advanced users who are deploying `easy-opal` behind an existing reverse proxy (e.g., another NGINX instance, Traefik, Caddy, or a cloud load balancer like an AWS ALB).
+
+In this mode, the external proxy is responsible for **SSL termination** (handling all public HTTPS traffic). The `easy-opal` stack communicates with your proxy over plain, unencrypted HTTP.
+
+### How It Works
+
+1.  **No SSL:** The `easy-opal` NGINX container does not handle any SSL certificates or listen on port 443.
+2.  **HTTP Only:** It listens on a plain HTTP port (default `80`) inside the Docker network.
+3.  **Exposed Port:** During setup, you specify a local port on the host machine (e.g., `8080`) that will be mapped to the NGINX container's internal port 80.
+4.  **External Proxy Configuration:** You must configure your external reverse proxy to forward traffic to the `easy-opal` stack on the exposed HTTP port (e.g., forward `https://my-opal.domain.com` to `http://<easy-opal-host-ip>:8080`).
+
+### When to Use It
+
+-   When integrating into an existing infrastructure that already has a centralized reverse proxy or load balancer.
+-   In corporate environments where SSL is handled at the network edge. 

@@ -39,7 +39,8 @@ services:
     container_name: ${PROJECT_NAME}-nginx
     restart: always
     ports:
-      - "${OPAL_EXTERNAL_PORT}:443"
+      #HTTPS_PORT_MAPPING
+      #HTTP_PORT_MAPPING
       #LETSENCRYPT_PORT_MAPPING
     volumes:
       - ./data/nginx/conf/nginx.conf:/etc/nginx/nginx.conf:ro

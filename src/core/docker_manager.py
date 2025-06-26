@@ -48,10 +48,7 @@ def generate_compose_file():
     # We will do it manually for the fields that need it.
     compose_string = Path(COMPOSE_TEMPLATE_PATH).read_text()
     compose_string = compose_string.replace("${PROJECT_NAME}", config["stack_name"])
-    # Use the first host as the primary for Opal's proxy settings
-    compose_string = compose_string.replace("${OPAL_HOSTNAME}", config["hosts"][0])
-    compose_string = compose_string.replace("${OPAL_EXTERNAL_PORT}", str(config["opal_external_port"]))
-    
+
     # Build the list of rock hosts for discovery
     rock_hosts = []
     for profile in config.get("profiles", []):
@@ -59,8 +56,25 @@ def generate_compose_file():
     
     compose_string = compose_string.replace("${OPAL_ROCK_HOSTS}", ",".join(rock_hosts))
 
-    # Conditionally add port 80 mapping for letsencrypt
-    if config.get("ssl", {}).get("strategy") == "letsencrypt":
+    # Conditionally set ports based on SSL strategy
+    strategy = config.get("ssl", {}).get("strategy")
+    if strategy == "reverse-proxy":
+        # Expose the internal NGINX port 80 to the host
+        http_port = config.get("opal_http_port", 8080)
+        compose_string = compose_string.replace("#HTTP_PORT_MAPPING", f'- "{http_port}:80"')
+        compose_string = compose_string.replace("#HTTPS_PORT_MAPPING", "")
+        compose_string = compose_string.replace("${OPAL_HOSTNAME}", "localhost") # Internal default
+        compose_string = compose_string.replace("${OPAL_EXTERNAL_PORT}", "80") # Internal default
+    else:
+        # Standard HTTPS setup
+        compose_string = compose_string.replace("#HTTPS_PORT_MAPPING", f'- "{config["opal_external_port"]}:443"')
+        compose_string = compose_string.replace("#HTTP_PORT_MAPPING", "")
+        # Use the first host as the primary for Opal's proxy settings
+        compose_string = compose_string.replace("${OPAL_HOSTNAME}", config["hosts"][0])
+        compose_string = compose_string.replace("${OPAL_EXTERNAL_PORT}", str(config["opal_external_port"]))
+
+    # Conditionally add port 80 mapping for letsencrypt (in addition to 443)
+    if strategy == "letsencrypt":
         compose_string = compose_string.replace("#LETSENCRYPT_PORT_MAPPING", '- "80:80"')
     else:
         compose_string = compose_string.replace("#LETSENCRYPT_PORT_MAPPING", "")

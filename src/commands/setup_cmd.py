@@ -51,8 +51,9 @@ def get_local_ip():
 @click.option('--stack-name', help='The name of the Docker stack.')
 @click.option('--host', 'hosts', multiple=True, help='A hostname or IP for Opal. Can be used multiple times.')
 @click.option('--port', help='The external HTTPS port for Opal.', type=int)
+@click.option('--http-port', help="The local HTTP port to expose when using 'reverse-proxy' strategy.", type=int)
 @click.option('--password', help='The Opal administrator password.')
-@click.option("--ssl-strategy", type=click.Choice(['self-signed', 'letsencrypt', 'manual']), help="The SSL strategy to use.")
+@click.option("--ssl-strategy", type=click.Choice(['self-signed', 'letsencrypt', 'manual', 'reverse-proxy']), help="The SSL strategy to use. See [SSL Configuration Guide](./docs/SSL_CONFIGURATION.md) for details.")
 @click.option("--ssl-cert-path", help="Path to your certificate file (for 'manual' strategy).")
 @click.option("--ssl-key-path", help="Path to your private key file (for 'manual' strategy).")
 @click.option("--ssl-email", help="Email for Let's Encrypt renewal notices (for 'letsencrypt' strategy).")
@@ -63,7 +64,7 @@ def get_local_ip():
 @click.option('--reset-certs', is_flag=True, help='[Non-interactive] Reset certs during setup.')
 @click.option('--reset-secrets', is_flag=True, help='[Non-interactive] Reset secrets file during setup.')
 def setup(
-    stack_name, hosts, port, password, ssl_strategy, ssl_cert_path,
+    stack_name, hosts, port, http_port, password, ssl_strategy, ssl_cert_path,
     ssl_key_path, ssl_email, yes, reset_containers, reset_volumes,
     reset_configs, reset_certs, reset_secrets
 ):
@@ -146,85 +147,98 @@ def setup(
         console.print("[cyan]1. General Configuration[/cyan]")
         config["stack_name"] = Prompt.ask("Enter the stack name", default=config["stack_name"])
         
-        while True:
-            port_val = IntPrompt.ask("Enter the external HTTPS port for Opal", default=config["opal_external_port"])
-            if not is_port_in_use(port_val):
-                config["opal_external_port"] = port_val
-                break
-            else:
-                console.print(f"[bold red]Port {port_val} is already in use. Please choose another one.[/bold red]")
-
         # --- Collect SSL Strategy ---
         console.print("\n[cyan]2. SSL Certificate Configuration[/cyan]")
         strategy = Prompt.ask(
-            "Choose an SSL certificate strategy (self-signed, letsencrypt, manual)",
-            choices=["self-signed", "letsencrypt", "manual"],
+            "Choose an SSL certificate strategy",
+            choices=["self-signed", "letsencrypt", "manual", "reverse-proxy"],
             default="self-signed"
         )
         config["ssl"]["strategy"] = strategy
 
-        # --- Collect Host and Cert-specific Info ---
-        if strategy == "self-signed":
-            if not check_mkcert_installed():
-                console.print("[bold red]mkcert is not installed. Please run './setup' to install it.[/bold red]")
-                return
+        if strategy == "reverse-proxy":
+            while True:
+                port_val = IntPrompt.ask("Enter the local HTTP port to expose Opal on", default=config["opal_http_port"])
+                if not is_port_in_use(port_val):
+                    config["opal_http_port"] = port_val
+                    break
+                else:
+                    console.print(f"[bold red]Port {port_val} is already in use. Please choose another one.[/bold red]")
+            # No hosts needed for this strategy as it's handled by the external proxy
+            config["hosts"] = []
+        else:
+            # --- Collect Port for HTTPS strategies ---
+            while True:
+                port_val = IntPrompt.ask("Enter the external HTTPS port for Opal", default=config["opal_external_port"])
+                if not is_port_in_use(port_val):
+                    config["opal_external_port"] = port_val
+                    break
+                else:
+                    console.print(f"[bold red]Port {port_val} is already in use. Please choose another one.[/bold red]")
 
-            hosts_list = ["localhost", "127.0.0.1"]
-            local_ip = get_local_ip()
-            if local_ip not in hosts_list:
-                hosts_list.append(local_ip)
-            
-            console.print(f"Default hosts for self-signed cert are: [green]{', '.join(hosts_list)}[/green]")
-            while Confirm.ask("[cyan]Add another hostname or IP?[/cyan]", default=False):
-                host = Prompt.ask(f"Enter a hostname or IP address")
-                if host not in hosts_list:
-                    hosts_list.append(host)
-            config["hosts"] = hosts_list
+            # --- Collect Host and Cert-specific Info ---
+            if strategy == "self-signed":
+                if not check_mkcert_installed():
+                    console.print("[bold red]mkcert is not installed. Please run './setup' to install it.[/bold red]")
+                    return
 
-        elif strategy == "manual":
-            cert_path_str = Prompt.ask("Enter the full path to your SSL certificate file (.crt)")
-            if not cert_path_str.strip():
-                console.print("[bold red]Certificate path cannot be empty.[/bold red]")
-                return
-            if not Path(cert_path_str).is_file():
-                console.print(f"[bold red]File not found at: {cert_path_str}[/bold red]")
-                return
+                hosts_list = ["localhost", "127.0.0.1"]
+                local_ip = get_local_ip()
+                if local_ip not in hosts_list:
+                    hosts_list.append(local_ip)
+                
+                console.print(f"Default hosts for self-signed cert are: [green]{', '.join(hosts_list)}[/green]")
+                while Confirm.ask("[cyan]Add another hostname or IP?[/cyan]", default=False):
+                    host = Prompt.ask(f"Enter a hostname or IP address")
+                    if host not in hosts_list:
+                        hosts_list.append(host)
+                config["hosts"] = hosts_list
 
-            key_path_str = Prompt.ask("Enter the full path to your SSL private key file (.key)")
-            if not key_path_str.strip():
-                console.print("[bold red]Private key path cannot be empty.[/bold red]")
-                return
-            if not Path(key_path_str).is_file():
-                console.print(f"[bold red]File not found at: {key_path_path}[/bold red]")
-                return
+            elif strategy == "manual":
+                cert_path_str = Prompt.ask("Enter the full path to your SSL certificate file (.crt)")
+                if not cert_path_str.strip():
+                    console.print("[bold red]Certificate path cannot be empty.[/bold red]")
+                    return
+                if not Path(cert_path_str).is_file():
+                    console.print(f"[bold red]File not found at: {cert_path_str}[/bold red]")
+                    return
 
-            host = Prompt.ask("Enter the primary hostname for this certificate (e.g., my-opal.domain.com)")
-            if not host.strip():
-                console.print("[bold red]Hostname cannot be empty.[/bold red]")
-                return
+                key_path_str = Prompt.ask("Enter the full path to your SSL private key file (.key)")
+                if not key_path_str.strip():
+                    console.print("[bold red]Private key path cannot be empty.[/bold red]")
+                    return
+                if not Path(key_path_str).is_file():
+                    console.print(f"[bold red]File not found at: {key_path_str}[/bold red]")
+                    return
 
-            config["ssl"]["cert_path"] = cert_path_str
-            config["ssl"]["key_path"] = key_path_str
-            config["hosts"] = [host]
+                host = Prompt.ask("Enter the primary hostname for this certificate (e.g., my-opal.domain.com)")
+                if not host.strip():
+                    console.print("[bold red]Hostname cannot be empty.[/bold red]")
+                    return
 
-        elif strategy == "letsencrypt":
-            console.print("[bold yellow]Let's Encrypt requires your server to be publicly accessible on port 80 and 443 with a valid DNS record.[/bold yellow]")
-            email = Prompt.ask("Enter your email address for Let's Encrypt renewal notices")
-            if not email.strip():
-                console.print("[bold red]Email address cannot be empty.[/bold red]")
-                return
-            domain = Prompt.ask("Enter your domain name (e.g., my-opal.domain.com)")
-            if not domain.strip():
-                console.print("[bold red]Domain name cannot be empty.[/bold red]")
-                return
-            config["ssl"]["le_email"] = email
-            config["hosts"] = [domain]
+                config["ssl"]["cert_path"] = cert_path_str
+                config["ssl"]["key_path"] = key_path_str
+                config["hosts"] = [host]
+
+            elif strategy == "letsencrypt":
+                console.print("[bold yellow]Let's Encrypt requires your server to be publicly accessible on port 80 and 443 with a valid DNS record.[/bold yellow]")
+                email = Prompt.ask("Enter your email address for Let's Encrypt renewal notices")
+                if not email.strip():
+                    console.print("[bold red]Email address cannot be empty.[/bold red]")
+                    return
+                domain = Prompt.ask("Enter your domain name (e.g., my-opal.domain.com)")
+                if not domain.strip():
+                    console.print("[bold red]Domain name cannot be empty.[/bold red]")
+                    return
+                config["ssl"]["le_email"] = email
+                config["hosts"] = [domain]
 
     else: # Non-interactive mode
         console.print("[cyan]Running non-interactive setup...[/cyan]")
         if stack_name: config["stack_name"] = stack_name
         if hosts: config["hosts"] = list(hosts)
         if port: config["opal_external_port"] = port
+        if http_port: config["opal_http_port"] = http_port
         if password:
             # Save password to .env file for non-interactive setup
             (Path.cwd() / ".env").write_text(f"OPAL_ADMIN_PASSWORD={password}")
@@ -244,6 +258,10 @@ def setup(
             config["ssl"]["key_path"] = ssl_key_path
         elif ssl_strategy == "letsencrypt":
             config["ssl"]["le_email"] = ssl_email
+        elif ssl_strategy == "reverse-proxy":
+            if http_port: config["opal_http_port"] = http_port
+            # No hosts needed for this strategy
+            config["hosts"] = []
 
     # --- Password Handling ---
     if is_interactive:
