@@ -124,10 +124,10 @@ def generate_compose_file():
 
 def run_docker_compose(command: list, project_name: str = None):
     """Helper function to run docker compose commands."""
-    if not check_docker_installed():
-        console.print("[bold red]Docker is not installed or not running.[/bold red]")
-        console.print("Please install Docker Desktop and ensure it's running before using this tool.")
-        sys.exit(1)
+    #if not check_docker_installed():
+    #    console.print("[bold red]Docker is not installed or not running.[/bold red]")
+    #    console.print("Please install Docker Desktop and ensure it's running before using this tool.")
+    #    sys.exit(1)
     
     if project_name is None:
         config = load_config()
