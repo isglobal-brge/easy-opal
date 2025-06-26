@@ -18,11 +18,32 @@ DOCKER_COMPOSE_PATH = Path("docker-compose.yml")
 def check_docker_installed():
     """Checks if Docker is installed and running."""
     try:
+        # Check Docker engine first
         subprocess.run(["docker", "--version"], check=True, capture_output=True)
-        # Check for 'docker compose' functionality
-        subprocess.run(["docker", "compose", "version"], check=True, capture_output=True)
+        
         # Check if docker daemon is running
         subprocess.run(["docker", "ps"], check=True, capture_output=True)
+        
+        # Check for Docker Compose - try V2 first, then fall back to V1
+        compose_available = False
+        
+        # Try Docker Compose V2 (docker compose)
+        try:
+            subprocess.run(["docker", "compose", "version"], check=True, capture_output=True)
+            compose_available = True
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            # Try Docker Compose V1 (docker-compose)
+            try:
+                subprocess.run(["docker-compose", "--version"], check=True, capture_output=True)
+                compose_available = True
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                pass
+        
+        if not compose_available:
+            console.print("[bold red]Docker Compose is not available.[/bold red]")
+            console.print("Please install Docker Compose (V2 recommended) or docker-compose (V1).")
+            return False
+            
         return True
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
@@ -82,6 +103,8 @@ def generate_compose_file():
         compose_data["services"]["nginx"]["ports"] = nginx_ports
 
         # Conditionally remove certbot service if not using letsencrypt
+        # Note: certbot service in template includes network configuration,
+        # but when deleted here, the entire service (including network config) is removed
         if strategy != "letsencrypt":
             if "certbot" in compose_data["services"]: del compose_data["services"]["certbot"]
 
@@ -96,7 +119,11 @@ def generate_compose_file():
             "image": f"{profile['image']}:{profile['tag']}",
             "container_name": f"{config['stack_name']}-{service_name}",
             "restart": "always",
-            "networks": ["opal-net"],
+            "networks": {
+                "opal-net": {
+                    "aliases": [service_name]
+                }
+            },
             "environment": [
                 f"ROCK_CLUSTER={cluster_name}",
                 f"ROCK_ID={config['stack_name']}-{service_name}",
@@ -118,6 +145,21 @@ def generate_compose_file():
     console.print(f"[green]docker-compose.yml generated successfully.[/green]")
 
 
+def get_docker_compose_command():
+    """Determines the correct Docker Compose command to use (V2 vs V1)."""
+    # Try Docker Compose V2 first (docker compose)
+    try:
+        subprocess.run(["docker", "compose", "version"], check=True, capture_output=True)
+        return ["docker", "compose"]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # Fall back to Docker Compose V1 (docker-compose)
+        try:
+            subprocess.run(["docker-compose", "--version"], check=True, capture_output=True)
+            return ["docker-compose"]
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return None
+
+
 def run_docker_compose(command: list, project_name: str = None):
     """Helper function to run docker compose commands."""
     if not check_docker_installed():
@@ -125,11 +167,25 @@ def run_docker_compose(command: list, project_name: str = None):
         console.print("Please install Docker Desktop and ensure it's running before using this tool.")
         sys.exit(1)
     
+    # Get the appropriate compose command
+    compose_cmd = get_docker_compose_command()
+    if not compose_cmd:
+        console.print("[bold red]Docker Compose is not available.[/bold red]")
+        console.print("Please install Docker Compose (V2 recommended) or docker-compose (V1).")
+        sys.exit(1)
+    
     if project_name is None:
         config = load_config()
         project_name = config["stack_name"]
 
-    base_command = ["docker", "compose", "--project-name", project_name]
+    # Build the command based on compose version
+    if compose_cmd[0] == "docker-compose":
+        # V1 syntax: docker-compose --project-name <name> <command>
+        base_command = compose_cmd + ["--project-name", project_name]
+    else:
+        # V2 syntax: docker compose --project-name <name> <command>
+        base_command = compose_cmd + ["--project-name", project_name]
+    
     full_command = base_command + command
     
     console.print(f"[bold cyan]Running command: {' '.join(full_command)}[/bold cyan]")
