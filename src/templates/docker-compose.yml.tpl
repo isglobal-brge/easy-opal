@@ -17,20 +17,20 @@ services:
     volumes:
       - opal_srv_data:/srv
     environment:
-      - MONGO_HOST=mongo
-      - MONGO_PORT=27017
-      - OPAL_ADMINISTRATOR_PASSWORD=${OPAL_ADMIN_PASSWORD}
-      - OPAL_PROXY_SECURE=true
-      - OPAL_PROXY_HOST=${OPAL_HOSTNAME}
-      - OPAL_PROXY_PORT=${OPAL_EXTERNAL_PORT}
-      - CSRF_ALLOWED=*
-      - ROCK_HOSTS=${OPAL_ROCK_HOSTS}
-      - ROCK_DEFAULT_ADMINISTRATOR_USERNAME=administrator
-      - ROCK_DEFAULT_ADMINISTRATOR_PASSWORD=password
-      - ROCK_DEFAULT_MANAGER_USERNAME=manager
-      - ROCK_DEFAULT_MANAGER_PASSWORD=password
-      - ROCK_DEFAULT_USER_USERNAME=user
-      - ROCK_DEFAULT_USER_PASSWORD=password
+      MONGO_HOST: mongo
+      MONGO_PORT: 27017
+      OPAL_ADMINISTRATOR_PASSWORD: ${OPAL_ADMIN_PASSWORD}
+      OPAL_PROXY_SECURE: true
+      OPAL_PROXY_HOST: localhost
+      OPAL_PROXY_PORT: 443
+      CSRF_ALLOWED: "*"
+      ROCK_HOSTS: "http://rock:8085"
+      ROCK_DEFAULT_ADMINISTRATOR_USERNAME: administrator
+      ROCK_DEFAULT_ADMINISTRATOR_PASSWORD: password
+      ROCK_DEFAULT_MANAGER_USERNAME: manager
+      ROCK_DEFAULT_MANAGER_PASSWORD: password
+      ROCK_DEFAULT_USER_USERNAME: user
+      ROCK_DEFAULT_USER_PASSWORD: password
     networks:
       - opal-net
 
@@ -38,10 +38,7 @@ services:
     image: nginx:latest
     container_name: ${PROJECT_NAME}-nginx
     restart: always
-    ports:
-      #HTTPS_PORT_MAPPING
-      #HTTP_PORT_MAPPING
-      #LETSENCRYPT_PORT_MAPPING
+    ports: []
     volumes:
       - ./data/nginx/conf/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./data/nginx/certs:/etc/nginx/certs:ro

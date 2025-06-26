@@ -43,54 +43,50 @@ def generate_compose_file():
     with open(COMPOSE_TEMPLATE_PATH, "r") as f:
         compose_data = yaml.load(f)
 
-    # Substitute environment variables in the template
-    # ruamel.yaml doesn't support env var substitution out of the box like docker-compose does.
-    # We will do it manually for the fields that need it.
-    compose_string = Path(COMPOSE_TEMPLATE_PATH).read_text()
-    compose_string = compose_string.replace("${PROJECT_NAME}", config["stack_name"])
+    # --- Set Project-wide values ---
+    for service in compose_data["services"].values():
+        if service.get("container_name"):
+            service["container_name"] = service["container_name"].replace("${PROJECT_NAME}", config["stack_name"])
 
-    # Build the list of rock hosts for discovery
-    rock_hosts = []
-    for profile in config.get("profiles", []):
-        rock_hosts.append(f"http://{profile['name']}:8085")
-    
-    compose_string = compose_string.replace("${OPAL_ROCK_HOSTS}", ",".join(rock_hosts))
+    # --- Configure Opal Service ---
+    opal_env = compose_data["services"]["opal"]["environment"]
+    rock_hosts = [f"http://{p['name']}:8085" for p in config.get("profiles", [])]
+    opal_env["ROCK_HOSTS"] = ",".join(rock_hosts)
 
-    # Conditionally set ports based on SSL strategy
+    # --- Configure based on SSL Strategy ---
     strategy = config.get("ssl", {}).get("strategy")
+    
     if strategy == "reverse-proxy":
-        # Expose the internal NGINX port 80 to the host
+        # Expose the Opal service directly, without our own NGINX.
         http_port = config.get("opal_http_port", 8080)
-        compose_string = compose_string.replace("#HTTP_PORT_MAPPING", f'- "{http_port}:80"')
-        compose_string = compose_string.replace("#HTTPS_PORT_MAPPING", "")
-        compose_string = compose_string.replace("${OPAL_HOSTNAME}", "localhost") # Internal default
-        compose_string = compose_string.replace("${OPAL_EXTERNAL_PORT}", "80") # Internal default
-    else:
-        # Standard HTTPS setup
-        compose_string = compose_string.replace("#HTTPS_PORT_MAPPING", f'- "{config["opal_external_port"]}:443"')
-        compose_string = compose_string.replace("#HTTP_PORT_MAPPING", "")
-        # Use the first host as the primary for Opal's proxy settings
-        compose_string = compose_string.replace("${OPAL_HOSTNAME}", config["hosts"][0])
-        compose_string = compose_string.replace("${OPAL_EXTERNAL_PORT}", str(config["opal_external_port"]))
+        compose_data["services"]["opal"]["ports"] = [f"{http_port}:8080"]
+        
+        # Remove the now-unnecessary NGINX and Certbot services
+        if "nginx" in compose_data["services"]: del compose_data["services"]["nginx"]
+        if "certbot" in compose_data["services"]: del compose_data["services"]["certbot"]
+        
+        console.print("[dim]NGINX and Certbot services removed (reverse-proxy mode).[/dim]")
+        opal_env["OPAL_PROXY_SECURE"] = "false"
+        opal_env["OPAL_PROXY_HOST"] = "localhost"
+        opal_env["OPAL_PROXY_PORT"] = str(http_port)
 
-    # Conditionally add port 80 mapping for letsencrypt (in addition to 443)
-    if strategy == "letsencrypt":
-        compose_string = compose_string.replace("#LETSENCRYPT_PORT_MAPPING", '- "80:80"')
-    else:
-        compose_string = compose_string.replace("#LETSENCRYPT_PORT_MAPPING", "")
+    else: # Standard HTTPS strategies
+        opal_env["OPAL_PROXY_SECURE"] = "true"
+        opal_env["OPAL_PROXY_HOST"] = config["hosts"][0]
+        opal_env["OPAL_PROXY_PORT"] = str(config["opal_external_port"])
+        
+        # Configure NGINX ports
+        nginx_ports = [f'{config["opal_external_port"]}:443']
+        if strategy == "letsencrypt":
+            nginx_ports.append("80:80")
+        compose_data["services"]["nginx"]["ports"] = nginx_ports
 
-    compose_data = yaml.load(compose_string)
-
-    # Conditionally remove certbot service if not using letsencrypt
-    if config.get("ssl", {}).get("strategy") != "letsencrypt":
-        if "certbot" in compose_data.get("services", {}):
-            del compose_data["services"]["certbot"]
-            console.print("[dim]Certbot service removed (not using Let's Encrypt).[/dim]")
+        # Conditionally remove certbot service if not using letsencrypt
+        if strategy != "letsencrypt":
+            if "certbot" in compose_data["services"]: del compose_data["services"]["certbot"]
 
     # Add rock profiles
-    if "volumes" not in compose_data:
-        compose_data["volumes"] = {}
-
+    if "volumes" not in compose_data: compose_data["volumes"] = {}
     for profile in config.get("profiles", []):
         service_name = profile["name"]
         cluster_name = "default" if service_name == "rock" else service_name

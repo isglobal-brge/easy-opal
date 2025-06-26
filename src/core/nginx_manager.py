@@ -17,15 +17,18 @@ def generate_nginx_config():
     strategy = config.get("ssl", {}).get("strategy")
 
     if strategy == "reverse-proxy":
-        template_path = HTTP_TEMPLATE_PATH
-        if not template_path.exists():
-            console.print(f"[bold red]NGINX HTTP template not found at {template_path}[/bold red]")
-            return
-    else:
-        template_path = HTTPS_TEMPLATE_PATH
-        if not template_path.exists():
-            console.print(f"[bold red]NGINX HTTPS template not found at {template_path}[/bold red]")
-            return
+        console.print("[dim]Skipping NGINX configuration (reverse-proxy mode).[/dim]")
+        # Clean up any old config file that might be present
+        output_path = NGINX_CONF_DIR / "nginx.conf"
+        if output_path.exists():
+            output_path.unlink()
+        return
+
+    # Proceed with generating config for HTTPS strategies
+    template_path = HTTPS_TEMPLATE_PATH
+    if not template_path.exists():
+        console.print(f"[bold red]NGINX HTTPS template not found at {template_path}[/bold red]")
+        return
 
     console.print("[cyan]Generating NGINX configuration...[/cyan]")
 

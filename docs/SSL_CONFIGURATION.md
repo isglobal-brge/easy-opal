@@ -74,10 +74,9 @@ In this mode, the external proxy is responsible for **SSL termination** (handlin
 
 ### How It Works
 
-1.  **No SSL:** The `easy-opal` NGINX container does not handle any SSL certificates or listen on port 443.
-2.  **HTTP Only:** It listens on a plain HTTP port (default `80`) inside the Docker network.
-3.  **Exposed Port:** During setup, you specify a local port on the host machine (e.g., `8080`) that will be mapped to the NGINX container's internal port 80.
-4.  **External Proxy Configuration:** You must configure your external reverse proxy to forward traffic to the `easy-opal` stack on the exposed HTTP port (e.g., forward `https://my-opal.domain.com` to `http://<easy-opal-host-ip>:8080`).
+1.  **No Internal NGINX:** The `easy-opal` stack does **not** run its own NGINX container in this mode.
+2.  **Direct Port Exposure:** During setup, you specify a local port on the host machine (e.g., `8080`) that will be mapped directly to the Opal service's internal port (`8080`).
+3.  **External Proxy Configuration:** You must configure your external reverse proxy to forward traffic to the `easy-opal` stack on this exposed HTTP port (e.g., forward `https://my-opal.domain.com` to `http://<easy-opal-host-ip>:8080`).
 
 ### When to Use It
 
