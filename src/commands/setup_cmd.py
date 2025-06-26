@@ -136,9 +136,9 @@ def setup(
         console.print("[bold cyan]Welcome to the easy-opal setup wizard![/bold cyan]")
 
     # Dependency checks
-    #if not check_docker_installed():
-    #    console.print("[bold red]Docker is not installed or not running. Please install and start Docker to continue.[/bold red]")
-    #    return
+    if not check_docker_installed():
+        console.print("[bold red]Docker is not installed or not running. Please install and start Docker to continue.[/bold red]")
+        return
     
     config = get_default_config()
 
