@@ -67,6 +67,12 @@ def generate_compose_file():
 
     compose_data = yaml.load(compose_string)
 
+    # Conditionally remove certbot service if not using letsencrypt
+    if config.get("ssl", {}).get("strategy") != "letsencrypt":
+        if "certbot" in compose_data.get("services", {}):
+            del compose_data["services"]["certbot"]
+            console.print("[dim]Certbot service removed (not using Let's Encrypt).[/dim]")
+
     # Add rock profiles
     if "volumes" not in compose_data:
         compose_data["volumes"] = {}
