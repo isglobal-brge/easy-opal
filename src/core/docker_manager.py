@@ -315,9 +315,35 @@ def pull_docker_image(image_name: str):
 def find_available_subnet():
     """Finds an available subnet for the Docker network by checking existing networks."""
     try:
+        # Get Docker version to determine command compatibility
+        docker_version = get_docker_version()
+        version_num = 0
+        if docker_version:
+            try:
+                major, minor = map(int, docker_version.split('.')[:2])
+                version_num = major * 100 + minor  # e.g., 20.10 -> 2010
+            except (ValueError, AttributeError):
+                pass
+        
+        # For Docker < 1.13, skip network detection and use auto-assignment
+        if version_num > 0 and version_num < 113:
+            console.print("[yellow]Docker version too old for network inspection. Using Docker auto-assignment.[/yellow]")
+            return None, None
+        
         # Get all existing Docker networks
-        result = subprocess.run(["docker", "network", "ls", "--format", "{{.ID}}"], 
-                              check=True, capture_output=True, text=True)
+        # Try modern format flag first, fall back to basic listing
+        try:
+            result = subprocess.run(["docker", "network", "ls", "--format", "{{.ID}}"], 
+                                  check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError:
+            # Fallback for older Docker versions that don't support --format
+            try:
+                result = subprocess.run(["docker", "network", "ls", "-q"], 
+                                      check=True, capture_output=True, text=True)
+            except subprocess.CalledProcessError:
+                # If even basic network listing fails, use auto-assignment
+                console.print("[yellow]Warning: Docker network commands not available. Using Docker auto-assignment.[/yellow]")
+                return None, None
         
         # Handle empty output or whitespace-only output
         if not result.stdout or not result.stdout.strip():

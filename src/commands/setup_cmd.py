@@ -367,3 +367,27 @@ def setup(
     console.print("\n[bold green]Setup is complete![/bold green]")
     console.print("You can now start the Opal stack by running:")
     console.print("[bold yellow]./easy-opal up[/bold yellow]")
+
+    # Add prompt to offer starting the stack with default "y"
+    start_stack = False
+    if is_interactive:
+        start_stack = Confirm.ask("\n[cyan]Do you want to start the Opal stack now?[/cyan]", default=True)
+    elif yes:
+        # In non-interactive mode with --yes flag, auto-start the stack
+        start_stack = True
+        console.print("\n[cyan]--yes flag provided. Starting the Opal stack automatically...[/cyan]")
+    
+    if start_stack:
+        console.print("[cyan]Starting the Opal stack...[/cyan]")
+        run_docker_compose(["up", "-d"])
+        console.print("[green]Opal stack started successfully![/green]")
+        
+        # Show access information
+        strategy = config.get("ssl", {}).get("strategy")
+        if strategy == "reverse-proxy":
+            console.print(f"\n[bold green]🎉 Opal is now accessible at: http://localhost:{config['opal_http_port']}[/bold green]")
+        else:
+            hosts = config.get("hosts", ["localhost"])
+            port = config.get("opal_external_port", 443)
+            console.print(f"\n[bold green]🎉 Opal is now accessible at: https://{hosts[0]}:{port}[/bold green]")
+        console.print("[yellow]Default login: administrator / (your chosen password)[/yellow]")
