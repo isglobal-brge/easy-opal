@@ -12,6 +12,41 @@ Before you begin, ensure you have the following installed on your system:
 
 The setup script will check for these and guide you if they are missing.
 
+## Recommended Setup
+
+For the smoothest experience, we recommend:
+
+### **Operating System:**
+
+**✅ Ubuntu 20.04+ / 22.04+** (Highly Recommended)
+- Ships with Docker Compose V2 by default
+- Excellent Docker integration
+- All dependencies (curl, git, etc.) pre-installed
+- Best networking compatibility
+
+> **Note:** While easy-opal works on other Linux distributions and macOS, Ubuntu provides the most reliable experience with fewer setup issues.
+
+### **Administrative Privileges:**
+
+- **`sudo` access is required** for:
+  - Installing system dependencies (Docker, git, curl, mkcert)
+  - Docker daemon operations (if not in docker group)
+  - SSL certificate installation (mkcert -install)
+
+- **Add your user to the docker group** (recommended):
+  ```bash
+  sudo usermod -aG docker $USER
+  # Log out and back in for changes to take effect
+  ```
+
+### **Docker Requirements:**
+- **Docker Engine 17.06+** (20.10+ recommended)
+- **Docker Compose V2** preferred (falls back to V1 automatically)
+- **At least 4GB RAM** available for containers
+- **At least 20GB free disk space** for images, data, and build cache
+
+> **💡 Tip:** If you encounter issues, check our comprehensive [Troubleshooting Guide](./docs/TROUBLESHOOTING.md) for distribution-specific solutions.
+
 ## Installation
 
 The installation process is streamlined using Poetry for robust dependency and environment management.
