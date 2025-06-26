@@ -323,13 +323,21 @@ def setup(
         email_arg = f"--email {config['ssl']['le_email']}"
         
         console.print("[cyan]Requesting Let's Encrypt certificate...[/cyan]")
-        run_docker_compose(["up", "-d", "nginx"]) # Start nginx to solve challenge
+        
+        # We need to start nginx temporarily to solve the HTTP-01 challenge
+        run_docker_compose(["up", "-d", "nginx"])
         
         command = f"run --rm certbot certonly --webroot --webroot-path /var/www/certbot {email_arg} {domain_args} --agree-tos --no-eff-email --force-renewal"
-        run_docker_compose(command.split())
+        cert_success = run_docker_compose(command.split())
         
-        run_docker_compose(["stop", "nginx"]) # Stop temp nginx
+        # Always stop the temporary nginx container
+        run_docker_compose(["stop", "nginx"])
         
+        if not cert_success:
+            console.print("[bold red]Failed to obtain Let's Encrypt certificate. Please check the logs above.[/bold red]")
+            console.print("[yellow]Your configuration has been saved, but you will need to run the setup again to retry certificate generation.[/yellow]")
+            return
+
         le_cert_path = f"/etc/letsencrypt/live/{config['hosts'][0]}/fullchain.pem"
         le_key_path = f"/etc/letsencrypt/live/{config['hosts'][0]}/privkey.pem"
         

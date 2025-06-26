@@ -52,7 +52,7 @@ The main command to configure or re-configure a stack. Running it without flags 
 -   `--host TEXT`: A hostname or IP for Opal. Can be used multiple times.
 -   `--port INTEGER`: The external HTTPS port for Opal.
 -   `--password TEXT`: The Opal administrator password.
--   `--ssl-strategy [self-signed|letsencrypt|manual]`: The SSL strategy to use.
+-   `--ssl-strategy [self-signed|letsencrypt|manual]`: The SSL strategy to use. See [SSL Configuration Guide](./docs/SSL_CONFIGURATION.md) for details.
 -   `--ssl-cert-path TEXT`: Path to your certificate file (for 'manual' strategy).
 -   `--ssl-key-path TEXT`: Path to your private key file (for 'manual' strategy).
 -   `--ssl-email TEXT`: Email for Let's Encrypt renewal notices.
