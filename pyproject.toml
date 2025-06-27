@@ -2,7 +2,11 @@
 name = "easy-opal"
 version = "0.1.0"
 description = "A command-line tool to easily set up and manage OBiBa Opal environments using Docker and NGINX."
-authors = ["David Sarrat González <sarrat@pm.me>"]
+authors = [
+    "David Sarrat González <david.sarrat@isglobal.org>",
+    "Xavier Escribà Montagut <xavier.escriba@isglobal.org>",
+    "Juan R González <juanr.gonzalez@isglobal.org>"
+]
 readme = "README.md"
 packages = [{include = "src"}]
 

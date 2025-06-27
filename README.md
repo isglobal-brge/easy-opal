@@ -53,7 +53,7 @@ The installation process is streamlined using Poetry for robust dependency and e
 
 1.  **Clone the repository**:
     ```bash
-    git clone https://github.com/davidsarratgonzalez/easy-opal.git
+    git clone https://github.com/isglobal-brge/easy-opal.git
     cd easy-opal
     ```
 

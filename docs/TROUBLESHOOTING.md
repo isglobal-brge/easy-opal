@@ -313,4 +313,4 @@ If none of these solutions work:
    echo "Docker version: $DOCKER_VERSION"
    ```
 
-2. **Create an issue** with the debug information at: [https://github.com/davidsarratgonzalez/easy-opal/issues](https://github.com/davidsarratgonzalez/easy-opal/issues) 
+2. **Create an issue** with the debug information at: [GitHub Issues](https://github.com/isglobal-brge/easy-opal/issues) 
