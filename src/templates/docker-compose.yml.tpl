@@ -5,10 +5,6 @@ services:
     restart: always
     volumes:
       - opal_mongo_data:/data/db
-    networks:
-      opal-net:
-        aliases:
-          - mongo
 
   opal:
     image: obiba/opal:latest
@@ -33,10 +29,6 @@ services:
       ROCK_DEFAULT_MANAGER_PASSWORD: password
       ROCK_DEFAULT_USER_USERNAME: user
       ROCK_DEFAULT_USER_PASSWORD: password
-    networks:
-      opal-net:
-        aliases:
-          - opal
 
   nginx:
     image: nginx:latest
@@ -51,10 +43,6 @@ services:
       - ./data/letsencrypt/conf:/etc/letsencrypt
     depends_on:
       - opal
-    networks:
-      opal-net:
-        aliases:
-          - nginx
 
   certbot:
     image: certbot/certbot
@@ -62,20 +50,8 @@ services:
     volumes:
       - ./data/letsencrypt/www:/var/www/certbot:rw
       - ./data/letsencrypt/conf:/etc/letsencrypt
-    networks:
-      opal-net:
-        aliases:
-          - certbot
 
   # Rock profiles will be added here dynamically
-
-networks:
-  opal-net:
-    driver: bridge
-    driver_opts:
-      com.docker.network.bridge.name: opal-br0
-      com.docker.network.bridge.enable_icc: "true"
-      com.docker.network.bridge.enable_ip_masquerade: "true"
 
 volumes:
   opal_mongo_data:

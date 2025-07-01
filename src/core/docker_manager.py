@@ -4,8 +4,6 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any
-import json
-import ipaddress
 
 from ruamel.yaml import YAML
 from rich.console import Console
@@ -126,8 +124,6 @@ def generate_compose_file():
         compose_data["services"]["nginx"]["ports"] = nginx_ports
 
         # Conditionally remove certbot service if not using letsencrypt
-        # Note: certbot service in template includes network configuration,
-        # but when deleted here, the entire service (including network config) is removed
         if strategy != "letsencrypt":
             if "certbot" in compose_data["services"]: del compose_data["services"]["certbot"]
 
@@ -142,11 +138,6 @@ def generate_compose_file():
             "image": f"{profile['image']}:{profile['tag']}",
             "container_name": f"{config['stack_name']}-{service_name}",
             "restart": "always",
-            "networks": {
-                "opal-net": {
-                    "aliases": [service_name]
-                }
-            },
             "environment": [
                 f"ROCK_CLUSTER={cluster_name}",
                 f"ROCK_ID={config['stack_name']}-{service_name}",
@@ -161,26 +152,6 @@ def generate_compose_file():
             "depends_on": ["opal"],
         }
         compose_data["volumes"][volume_name] = None
-
-    # Dynamically assign subnet to avoid conflicts
-    console.print("[cyan]Finding available subnet for network...[/cyan]")
-    subnet, gateway = find_available_subnet()
-    
-    if subnet and gateway:
-        console.print(f"[green]Using subnet: {subnet}[/green]")
-        # Add IPAM configuration to the network
-        if "ipam" not in compose_data["networks"]["opal-net"]:
-            compose_data["networks"]["opal-net"]["ipam"] = {
-                "driver": "default",
-                "config": [
-                    {
-                        "subnet": subnet,
-                        "gateway": gateway
-                    }
-                ]
-            }
-    else:
-        console.print("[yellow]Using Docker auto-assigned subnet[/yellow]")
 
     with open(DOCKER_COMPOSE_PATH, "w") as f:
         yaml.dump(compose_data, f)
@@ -310,93 +281,4 @@ def pull_docker_image(image_name: str):
         return False
         
     console.print(f"[green]Successfully pulled image: {image_name}[/green]")
-    return True
-
-def find_available_subnet():
-    """Finds an available subnet for the Docker network by checking existing networks."""
-    try:
-        # Get Docker version to determine command compatibility
-        docker_version = get_docker_version()
-        version_num = 0
-        if docker_version:
-            try:
-                major, minor = map(int, docker_version.split('.')[:2])
-                version_num = major * 100 + minor  # e.g., 20.10 -> 2010
-            except (ValueError, AttributeError):
-                pass
-        
-        # For Docker < 1.13, skip network detection and use auto-assignment
-        if version_num > 0 and version_num < 113:
-            console.print("[yellow]Docker version too old for network inspection. Using Docker auto-assignment.[/yellow]")
-            return None, None
-        
-        # Get all existing Docker networks
-        # Try modern format flag first, fall back to basic listing
-        try:
-            result = subprocess.run(["docker", "network", "ls", "--format", "{{.ID}}"], 
-                                  check=True, capture_output=True, text=True)
-        except subprocess.CalledProcessError:
-            # Fallback for older Docker versions that don't support --format
-            try:
-                result = subprocess.run(["docker", "network", "ls", "-q"], 
-                                      check=True, capture_output=True, text=True)
-            except subprocess.CalledProcessError:
-                # If even basic network listing fails, use auto-assignment
-                console.print("[yellow]Warning: Docker network commands not available. Using Docker auto-assignment.[/yellow]")
-                return None, None
-        
-        # Handle empty output or whitespace-only output
-        if not result.stdout or not result.stdout.strip():
-            network_ids = []
-        else:
-            network_ids = [nid.strip() for nid in result.stdout.strip().split('\n') if nid.strip()]
-        
-        used_subnets = set()
-        
-        # Inspect each network to get its subnet
-        for network_id in network_ids:
-            if network_id:  # Double-check that network_id is not empty
-                try:
-                    inspect_result = subprocess.run(["docker", "network", "inspect", network_id], 
-                                                  check=True, capture_output=True, text=True)
-                    network_data = json.loads(inspect_result.stdout)
-                    
-                    # Check if network_data is a list and not None
-                    if network_data and isinstance(network_data, list):
-                        for network in network_data:
-                            if network and 'IPAM' in network and network['IPAM'] and 'Config' in network['IPAM']:
-                                config_list = network['IPAM']['Config']
-                                if config_list:  # Make sure Config is not None
-                                    for config in config_list:
-                                        if config and 'Subnet' in config:
-                                            try:
-                                                subnet = ipaddress.IPv4Network(config['Subnet'], strict=False)
-                                                used_subnets.add(subnet)
-                                            except (ipaddress.AddressValueError, ValueError):
-                                                pass  # Skip invalid subnets
-                except (subprocess.CalledProcessError, json.JSONDecodeError):
-                    continue  # Skip networks we can't inspect
-        
-        # Try to find an available subnet in the 172.16.0.0/12 range
-        # This covers 172.16.x.x to 172.31.x.x
-        for third_octet in range(16, 32):  # 172.16 to 172.31
-            candidate_subnet = ipaddress.IPv4Network(f"172.{third_octet}.0.0/16")
-            
-            # Check if this subnet overlaps with any existing ones
-            if not any(candidate_subnet.overlaps(used_subnet) for used_subnet in used_subnets):
-                return str(candidate_subnet), str(candidate_subnet.network_address + 1)
-        
-        # If no 172.x subnet is available, try 192.168.x.0/24 range
-        for third_octet in range(100, 255):  # 192.168.100 to 192.168.254
-            candidate_subnet = ipaddress.IPv4Network(f"192.168.{third_octet}.0/24")
-            
-            if not any(candidate_subnet.overlaps(used_subnet) for used_subnet in used_subnets):
-                return str(candidate_subnet), str(candidate_subnet.network_address + 1)
-        
-        # Last resort: let Docker auto-assign
-        console.print("[yellow]Warning: Could not find available subnet. Using Docker auto-assignment.[/yellow]")
-        return None, None
-        
-    except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError) as e:
-        console.print(f"[yellow]Warning: Could not detect existing networks ({e}). Using Docker auto-assignment.[/yellow]")
-        return None, None 
+    return True 

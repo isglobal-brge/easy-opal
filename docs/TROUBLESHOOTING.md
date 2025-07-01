@@ -103,57 +103,32 @@ docker network inspect bridge
 docker network ls
 ```
 
-**Solution - Use the improved network configuration:**
-The latest version of easy-opal uses an enhanced bridge network configuration with:
-- **Dynamic subnet allocation** - Automatically finds available IP ranges to avoid conflicts
-- DNS aliases for better service discovery  
-- Bridge-specific settings for improved compatibility
+**Solution - Simplified network configuration:**
+The latest version of easy-opal uses Docker's default networking for better compatibility.
+We've removed the custom bridge network configuration that was causing issues.
 
-The tool automatically scans existing Docker networks and chooses an available subnet from:
-1. `172.16.0.0/16` to `172.31.0.0/16` (preferred)
-2. `192.168.100.0/24` to `192.168.254.0/24` (fallback)
-3. Docker auto-assignment (last resort)
-
-If you're still having issues, try recreating the network:
+If you're still having issues, try recreating the containers:
 ```bash
 # Remove existing containers
 ./easy-opal down
 
-# Remove the network (if it exists)
-docker network rm $(docker network ls -q --filter name=opal)
-
-# Restart to recreate with new configuration
-./easy-opal up
-```
-
-**If you get "Pool overlaps with other one" error:**
-```bash
-# This means there's a subnet conflict. The tool should handle this automatically,
-# but if it doesn't, try these steps:
-
-# 1. Clean up orphaned networks
+# Clean up any orphaned networks
 docker network prune
 
-# 2. List networks to see what's conflicting
-docker network ls
-docker network inspect <network-name>
-
-# 3. Force regenerate with different subnet
-./easy-opal down
-docker network rm $(docker network ls -q --filter name=opal) 2>/dev/null || true
+# Restart with simplified configuration
 ./easy-opal up
 ```
 
-**Alternative - Create custom bridge network:**
+**If you still get network errors:**
 ```bash
-# Remove existing containers
+# Clean up any existing containers and networks
 ./easy-opal down
 
-# Create custom bridge network
-docker network create --driver bridge opal-custom-net
+# Clean up orphaned networks
+docker network prune
 
-# Update your configuration to use custom network
-# (This may require modifying the docker-compose template)
+# Restart with simplified configuration
+./easy-opal up
 ```
 
 #### 3. Firewall/iptables Issues
