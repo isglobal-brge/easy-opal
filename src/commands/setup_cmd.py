@@ -366,40 +366,6 @@ def setup(
         console.print("[green]Let's Encrypt certificate obtained successfully.[/green]")
 
     console.print("\n[bold green]Setup is complete![/bold green]")
-    
-    # --- Environment Detection and Auto-Configuration ---
-    console.print("[bold cyan]Checking environment compatibility...[/bold cyan]")
-    detector = EnvironmentDetector()
-    env_info = detector.detect_environment()
-    
-    # Generate environment-specific recommendations
-    recommendations = detector.generate_recommendations()
-    
-    if recommendations:
-        console.print("\n[bold yellow]📋 Environment Recommendations[/bold yellow]")
-        high_priority = [r for r in recommendations if r.get('priority') == 'high']
-        
-        if high_priority:
-            console.print("[bold red]⚠️  High Priority Issues Found:[/bold red]")
-            for rec in high_priority:
-                console.print(f"  • {rec['title']}")
-                console.print(f"    {rec['description']}")
-                
-                # Show AWS console URL if available
-                if 'aws_console_url' in rec:
-                    console.print(f"    [dim]AWS Console: {rec['aws_console_url']}[/dim]")
-                
-                # Show commands if available
-                if 'commands' in rec:
-                    console.print("    [cyan]Commands to run:[/cyan]")
-                    for cmd in rec['commands']:
-                        console.print(f"      {cmd}")
-                        
-                console.print()
-            
-            if is_interactive and Confirm.ask("\n[yellow]Would you like to apply automatic fixes for these issues?[/yellow]", default=True):
-                detector.auto_configure_for_environment()
-    
     console.print("You can now start the Opal stack by running:")
     console.print("[bold yellow]./easy-opal up[/bold yellow]")
 
@@ -431,18 +397,48 @@ def setup(
             console.print(f"\n[bold green]🎉 Opal is now accessible at: https://{hosts[0]}:{port}[/bold green]")
         console.print("[yellow]Default login: administrator / (your chosen password)[/yellow]")
         
-        # Show post-setup recommendations
-        if env_info.get('cloud_provider') == 'aws':
-            console.print("\n[bold cyan]🌐 AWS Post-Setup Checklist:[/bold cyan]")
-            console.print("  1. Verify Security Groups allow inbound traffic on your configured port")
-            console.print("  2. Check Network ACLs if experiencing connectivity issues")
-            console.print("  3. Ensure your domain DNS points to this instance's public IP")
-            console.print("  4. Run './easy-opal diagnose' if you encounter any issues")
-        
-        if env_info.get('selinux') == 'Enforcing':
-            console.print("\n[bold cyan]🔒 SELinux Post-Setup Checklist:[/bold cyan]")
-            console.print("  1. Monitor SELinux audit logs: sudo ausearch -m avc -ts recent")
-            console.print("  2. If containers fail to start, run './easy-opal diagnose'")
-            console.print("  3. Consider creating custom SELinux policies for production")
-        
-        console.print("\n[bold green]💡 Troubleshooting: If you encounter issues, run './easy-opal diagnose' for comprehensive diagnostics[/bold green]")
+        # Optional environment detection (non-blocking)
+        if is_interactive:
+            console.print("\n[bold green]💡 Troubleshooting: If you encounter issues, run './easy-opal diagnose' for comprehensive diagnostics[/bold green]")
+            
+            try:
+                # Quick environment check for immediate issues
+                from src.core.environment_detector import EnvironmentDetector
+                detector = EnvironmentDetector()
+                env_info = detector.detect_environment()
+                
+                # Only show if there are high-priority issues
+                recommendations = detector.generate_recommendations()
+                high_priority = [r for r in recommendations if r.get('priority') == 'high']
+                
+                if high_priority:
+                    console.print("\n[bold yellow]⚠️  Potential Environment Issues Detected[/bold yellow]")
+                    console.print("Run './easy-opal diagnose' for detailed analysis and solutions.")
+                    
+                    if env_info.get('cloud_provider') == 'aws':
+                        console.print("\n[bold cyan]🌐 AWS Quick Checklist:[/bold cyan]")
+                        console.print("  1. Verify Security Groups allow inbound traffic on your configured port")
+                        console.print("  2. Check Network ACLs if experiencing connectivity issues")
+                        console.print("  3. Ensure your domain DNS points to this instance's public IP")
+                    
+                    if env_info.get('selinux') == 'Enforcing':
+                        console.print("\n[bold cyan]🔒 SELinux Quick Checklist:[/bold cyan]")
+                        console.print("  1. Monitor SELinux audit logs: sudo ausearch -m avc -ts recent")
+                        console.print("  2. If containers fail to start, run './easy-opal diagnose'")
+                        console.print("  3. Consider creating custom SELinux policies for production")
+                else:
+                    # Show environment-specific tips without issues
+                    if env_info.get('cloud_provider') == 'aws':
+                        console.print("\n[bold cyan]🌐 AWS Environment Detected[/bold cyan]")
+                        console.print("Remember to configure Security Groups and backup your EBS volumes!")
+                    
+                    if env_info.get('selinux') == 'Enforcing':
+                        console.print("\n[bold cyan]🔒 SELinux Environment Detected[/bold cyan]")
+                        console.print("SELinux is active. Run './easy-opal diagnose' if you encounter permission issues.")
+                        
+            except Exception as e:
+                # Environment detection failed, but don't let it break setup
+                console.print(f"\n[dim]Environment detection skipped: {str(e)}[/dim]")
+                console.print("[bold green]💡 Run './easy-opal diagnose' later for environment-specific optimizations[/bold green]")
+        else:
+            console.print("\n[bold green]💡 Troubleshooting: If you encounter issues, run './easy-opal diagnose' for comprehensive diagnostics[/bold green]")

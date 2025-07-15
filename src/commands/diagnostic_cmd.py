@@ -420,10 +420,21 @@ class NetworkDiagnostic:
         """Check for SELinux-related issues."""
         console.print("\n[bold cyan]🛡️ Checking SELinux Configuration[/bold cyan]")
         
+        # Skip if on macOS
+        if self.environment_info.get('macos'):
+            console.print("[green]✓ SELinux not applicable on macOS[/green]")
+            return
+            
         selinux_status = self.environment_info.get('selinux', 'Unknown')
         
         if selinux_status == 'Enforcing':
             console.print("[yellow]⚠ SELinux is in Enforcing mode[/yellow]")
+            
+            # Check SELinux booleans for Docker
+            self._check_selinux_booleans()
+            
+            # Check volume-specific SELinux issues
+            self._check_selinux_volumes()
             
             # Check for Docker-related SELinux denials
             try:
@@ -432,13 +443,9 @@ class NetworkDiagnostic:
                 
                 if audit_result.returncode == 0 and 'docker' in audit_result.stdout.lower():
                     console.print("[red]✗ SELinux denials detected for Docker[/red]")
-                    self.issues.append({
-                        'category': 'selinux',
-                        'severity': 'high',
-                        'title': 'SELinux blocking Docker operations',
-                        'description': 'SELinux is blocking Docker operations. This can prevent container connectivity.',
-                        'solution': 'Set SELinux to permissive mode: sudo setsebool -P container_manage_cgroup on'
-                    })
+                    
+                    # Analyze specific denials
+                    self._analyze_selinux_denials(audit_result.stdout)
                     
                     # Add more specific SELinux fixes
                     self.fixes.append({
@@ -463,6 +470,125 @@ class NetworkDiagnostic:
             console.print("[green]✓ SELinux is disabled[/green]")
         else:
             console.print("[yellow]⚠ SELinux status unknown[/yellow]")
+            
+    def _check_selinux_booleans(self):
+        """Check SELinux booleans relevant to Docker."""
+        try:
+            docker_booleans = [
+                'container_manage_cgroup',
+                'container_connect_any',
+                'container_use_cephfs'
+            ]
+            
+            for boolean in docker_booleans:
+                result = subprocess.run(['sudo', 'getsebool', boolean], 
+                                      capture_output=True, text=True, timeout=5)
+                
+                if result.returncode == 0:
+                    status = result.stdout.strip()
+                    if 'on' in status:
+                        console.print(f"[green]✓ SELinux boolean {boolean} is enabled[/green]")
+                    else:
+                        console.print(f"[red]✗ SELinux boolean {boolean} is disabled[/red]")
+                        self.issues.append({
+                            'category': 'selinux',
+                            'severity': 'high',
+                            'title': f'SELinux boolean {boolean} disabled',
+                            'description': f'SELinux boolean {boolean} must be enabled for Docker to work properly',
+                            'solution': f'Enable boolean: sudo setsebool -P {boolean} on'
+                        })
+                        
+        except Exception as e:
+            console.print(f"[yellow]⚠ Cannot check SELinux booleans: {str(e)}[/yellow]")
+            
+    def _check_selinux_volumes(self):
+        """Check SELinux contexts for Docker volumes."""
+        try:
+            console.print("[cyan]Checking SELinux volume contexts...[/cyan]")
+            
+            # Check Docker root directory context
+            docker_root = self.environment_info.get('docker_info', {}).get('DockerRootDir', '/var/lib/docker')
+            
+            context_result = subprocess.run(['ls', '-Z', docker_root], 
+                                          capture_output=True, text=True, timeout=5)
+            
+            if context_result.returncode == 0:
+                context_output = context_result.stdout.strip()
+                if 'container_file_t' in context_output or 'svirt_sandbox_file_t' in context_output:
+                    console.print(f"[green]✓ Docker root has correct SELinux context[/green]")
+                else:
+                    console.print(f"[yellow]⚠ Docker root may have incorrect SELinux context[/yellow]")
+                    console.print(f"[dim]Context: {context_output}[/dim]")
+                    
+                    self.issues.append({
+                        'category': 'selinux',
+                        'severity': 'medium',
+                        'title': 'Docker root SELinux context issue',
+                        'description': f'Docker root directory may have incorrect SELinux context',
+                        'solution': f'Fix context: sudo restorecon -Rv {docker_root}'
+                    })
+                    
+            # Check volume directories context
+            volumes_dir = f"{docker_root}/volumes"
+            if os.path.exists(volumes_dir):
+                try:
+                    volume_dirs = os.listdir(volumes_dir)
+                    opal_volume_dirs = [d for d in volume_dirs if self.stack_name in d]
+                    
+                    for vol_dir in opal_volume_dirs[:3]:  # Check first 3 volumes
+                        vol_path = os.path.join(volumes_dir, vol_dir)
+                        vol_context = subprocess.run(['ls', '-Z', vol_path], 
+                                                   capture_output=True, text=True, timeout=5)
+                        
+                        if vol_context.returncode == 0:
+                            if 'container_file_t' not in vol_context.stdout:
+                                console.print(f"[yellow]⚠ Volume {vol_dir} may have incorrect SELinux context[/yellow]")
+                                self.issues.append({
+                                    'category': 'selinux',
+                                    'severity': 'medium',
+                                    'title': f'Volume SELinux context issue',
+                                    'description': f'Volume {vol_dir} may have incorrect SELinux context',
+                                    'solution': f'Fix context: sudo restorecon -Rv {vol_path}'
+                                })
+                            else:
+                                console.print(f"[green]✓ Volume {vol_dir} has correct SELinux context[/green]")
+                                
+                except PermissionError:
+                    console.print("[yellow]⚠ Cannot check volume SELinux contexts (requires sudo)[/yellow]")
+                    
+        except Exception as e:
+            console.print(f"[yellow]⚠ Cannot check SELinux volume contexts: {str(e)}[/yellow]")
+            
+    def _analyze_selinux_denials(self, audit_output: str):
+        """Analyze specific SELinux denials and provide targeted solutions."""
+        try:
+            denials = audit_output.split('\n')
+            
+            volume_denials = [d for d in denials if 'write' in d and ('var/lib/docker' in d or 'volume' in d)]
+            network_denials = [d for d in denials if 'connect' in d or 'bind' in d]
+            
+            if volume_denials:
+                console.print("[red]✗ SELinux is blocking Docker volume operations[/red]")
+                self.issues.append({
+                    'category': 'selinux',
+                    'severity': 'high',
+                    'title': 'SELinux blocking Docker volume access',
+                    'description': 'SELinux is preventing Docker from accessing volumes',
+                    'solution': 'Fix volume contexts and enable container_manage_cgroup'
+                })
+                
+            if network_denials:
+                console.print("[red]✗ SELinux is blocking Docker network operations[/red]")
+                self.issues.append({
+                    'category': 'selinux',
+                    'severity': 'high',
+                    'title': 'SELinux blocking Docker network access',
+                    'description': 'SELinux is preventing Docker containers from network access',
+                    'solution': 'Enable container_connect_any: sudo setsebool -P container_connect_any on'
+                })
+                
+        except Exception as e:
+            console.print(f"[yellow]⚠ Cannot analyze SELinux denials: {str(e)}[/yellow]")
             
     def check_firewall_issues(self):
         """Check for firewall-related issues."""
@@ -633,10 +759,785 @@ class NetworkDiagnostic:
         except Exception as e:
             console.print(f"[yellow]⚠ DNS test failed: {str(e)}[/yellow]")
             
+    def check_volume_issues(self):
+        """Check Docker volume configuration and mounting issues."""
+        console.print("\n[bold cyan]💾 Checking Volume Configuration[/bold cyan]")
+        
+        is_macos = self.environment_info.get('macos', False)
+        
+        try:
+            # Check Docker volumes (works on both macOS and Linux)
+            volumes_result = subprocess.run(['docker', 'volume', 'ls'], capture_output=True, text=True, check=True, timeout=10)
+            console.print(f"[green]✓ Docker volumes:[/green]")
+            
+            # Get OPAL-specific volumes
+            opal_volumes = []
+            for line in volumes_result.stdout.split('\n')[1:]:  # Skip header
+                if line.strip() and self.stack_name in line:
+                    opal_volumes.append(line.strip())
+            
+            if opal_volumes:
+                for volume in opal_volumes:
+                    console.print(f"  {volume}")
+                    
+                # Check volume mounting in containers
+                self._check_volume_mounts()
+                
+                # Check volume inspect details
+                self._check_volume_details()
+                
+                # Check volume space usage (different approach for macOS)
+                self._check_volume_space()
+                
+                # Check volume permissions (adapted for macOS)
+                if not is_macos:
+                    self._check_volume_permissions()
+                else:
+                    self._check_macos_volume_permissions()
+                
+                # Check volume persistence
+                self._check_volume_persistence()
+                
+            else:
+                console.print("[yellow]⚠ No OPAL volumes found[/yellow]")
+                self.issues.append({
+                    'category': 'volumes',
+                    'severity': 'medium',
+                    'title': 'No OPAL volumes found',
+                    'description': 'Expected Docker volumes for OPAL stack not found',
+                    'solution': 'Check if containers are properly configured with persistent volumes'
+                })
+                
+        except Exception as e:
+            console.print(f"[red]✗ Error checking volumes: {str(e)}[/red]")
+            self.issues.append({
+                'category': 'volumes',
+                'severity': 'medium',
+                'title': 'Cannot check volume configuration',
+                'description': f'Error checking Docker volumes: {str(e)}',
+                'solution': 'Check Docker daemon status and permissions'
+            })
+
+    def _check_volume_mounts(self):
+        """Check if volumes are properly mounted in containers."""
+        try:
+            # Check running containers for volume mounts
+            containers_result = subprocess.run(['docker', 'ps', '--filter', f'name={self.stack_name}', '--format', '{{.Names}}'], 
+                                             capture_output=True, text=True, check=True, timeout=10)
+            
+            containers = [name.strip() for name in containers_result.stdout.split('\n') if name.strip()]
+            
+            for container in containers:
+                if 'mongo' in container:
+                    self._check_container_volume_mount(container, '/data/db', 'MongoDB data directory')
+                elif 'opal' in container:
+                    self._check_container_volume_mount(container, '/srv', 'OPAL data directory')
+                elif 'rock' in container:
+                    self._check_container_volume_mount(container, '/srv', 'Rock data directory')
+                    
+        except Exception as e:
+            console.print(f"[yellow]⚠ Cannot check volume mounts: {str(e)}[/yellow]")
+
+    def _check_container_volume_mount(self, container: str, mount_path: str, description: str):
+        """Check if a specific volume is mounted in a container."""
+        try:
+            # Check if the mount path exists and is writable
+            test_result = subprocess.run(['docker', 'exec', container, 'test', '-w', mount_path], 
+                                       capture_output=True, text=True, timeout=5)
+            
+            if test_result.returncode == 0:
+                console.print(f"[green]✓ {container}: {description} mounted and writable[/green]")
+                
+                # Check if it's actually a volume (not just a directory)
+                mount_info = subprocess.run(['docker', 'exec', container, 'mount'], 
+                                          capture_output=True, text=True, timeout=5)
+                
+                if mount_info.returncode == 0 and mount_path in mount_info.stdout:
+                    console.print(f"[green]✓ {container}: {description} is a proper volume mount[/green]")
+                else:
+                    console.print(f"[yellow]⚠ {container}: {description} may not be a volume mount[/yellow]")
+                    self.issues.append({
+                        'category': 'volumes',
+                        'severity': 'medium',
+                        'title': f'{description} not properly mounted',
+                        'description': f'Path {mount_path} in {container} may not be a volume mount',
+                        'solution': 'Check docker-compose.yml volume configuration'
+                    })
+            else:
+                console.print(f"[red]✗ {container}: {description} not writable or missing[/red]")
+                self.issues.append({
+                    'category': 'volumes',
+                    'severity': 'high',
+                    'title': f'{description} mount issue',
+                    'description': f'Cannot write to {mount_path} in {container}',
+                    'solution': 'Check volume permissions and SELinux contexts'
+                })
+                
+        except Exception as e:
+            console.print(f"[yellow]⚠ Cannot check mount {mount_path} in {container}: {str(e)}[/yellow]")
+
+    def _check_volume_permissions(self):
+        """Check volume permissions and ownership."""
+        try:
+            # Check Docker volume directory permissions
+            docker_root = self.environment_info.get('docker_info', {}).get('DockerRootDir', '/var/lib/docker')
+            volumes_dir = f"{docker_root}/volumes"
+            
+            if os.path.exists(volumes_dir):
+                # Check if we can read volume directory
+                try:
+                    volume_dirs = os.listdir(volumes_dir)
+                    opal_volume_dirs = [d for d in volume_dirs if self.stack_name in d]
+                    
+                    if opal_volume_dirs:
+                        console.print(f"[green]✓ Found {len(opal_volume_dirs)} OPAL volume directories[/green]")
+                        
+                        # Check permissions on volume directories
+                        for vol_dir in opal_volume_dirs:
+                            vol_path = os.path.join(volumes_dir, vol_dir, '_data')
+                            if os.path.exists(vol_path):
+                                stat_info = os.stat(vol_path)
+                                permissions = oct(stat_info.st_mode)[-3:]
+                                console.print(f"[green]✓ Volume {vol_dir}: permissions {permissions}[/green]")
+                                
+                                # Check for common permission issues
+                                if permissions < '755':
+                                    self.issues.append({
+                                        'category': 'volumes',
+                                        'severity': 'medium',
+                                        'title': 'Restrictive volume permissions',
+                                        'description': f'Volume {vol_dir} has restrictive permissions ({permissions})',
+                                        'solution': 'Consider adjusting volume permissions if containers cannot access data'
+                                    })
+                    else:
+                        console.print("[yellow]⚠ No OPAL volume directories found[/yellow]")
+                        
+                except PermissionError:
+                    console.print("[yellow]⚠ Cannot read volume directories (requires sudo)[/yellow]")
+                    
+            else:
+                console.print(f"[yellow]⚠ Docker volumes directory not found at {volumes_dir}[/yellow]")
+                
+        except Exception as e:
+            console.print(f"[yellow]⚠ Cannot check volume permissions: {str(e)}[/yellow]")
+
+    def _check_volume_space(self):
+        """Check volume space usage."""
+        try:
+            is_macos = self.environment_info.get('macos', False)
+            
+            if is_macos:
+                # macOS approach: Check overall disk usage
+                df_result = subprocess.run(['df', '-h', '/'], capture_output=True, text=True, check=True, timeout=5)
+                
+                if df_result.returncode == 0:
+                    lines = df_result.stdout.split('\n')
+                    if len(lines) > 1:
+                        parts = lines[1].split()
+                        if len(parts) >= 5:
+                            used_percent = parts[4].rstrip('%')
+                            console.print(f"[green]✓ System disk usage: {used_percent}%[/green]")
+                            
+                            if int(used_percent) > 85:
+                                self.issues.append({
+                                    'category': 'volumes',
+                                    'severity': 'high',
+                                    'title': 'High disk usage (macOS)',
+                                    'description': f'System disk is {used_percent}% full',
+                                    'solution': 'Free up disk space or clean Docker: docker system prune'
+                                })
+                            elif int(used_percent) > 70:
+                                self.issues.append({
+                                    'category': 'volumes',
+                                    'severity': 'medium',
+                                    'title': 'Moderate disk usage (macOS)',
+                                    'description': f'System disk is {used_percent}% full',
+                                    'solution': 'Monitor disk space and consider cleanup: docker system df'
+                                })
+                                
+                # Also check Docker's disk usage
+                docker_df = subprocess.run(['docker', 'system', 'df'], capture_output=True, text=True, check=True, timeout=10)
+                if docker_df.returncode == 0:
+                    console.print(f"[green]✓ Docker disk usage:[/green]")
+                    lines = docker_df.stdout.split('\n')
+                    for line in lines[1:]:  # Skip header
+                        if line.strip() and 'Volumes' in line:
+                            console.print(f"  {line}")
+                            
+            else:
+                # Linux approach: Check Docker volume space usage
+                docker_root = self.environment_info.get('docker_info', {}).get('DockerRootDir', '/var/lib/docker')
+                
+                df_result = subprocess.run(['df', '-h', docker_root], capture_output=True, text=True, check=True, timeout=5)
+                
+                if df_result.returncode == 0:
+                    lines = df_result.stdout.split('\n')
+                    if len(lines) > 1:
+                        parts = lines[1].split()
+                        if len(parts) >= 5:
+                            used_percent = parts[4].rstrip('%')
+                            console.print(f"[green]✓ Docker volumes disk usage: {used_percent}%[/green]")
+                            
+                            if int(used_percent) > 85:
+                                self.issues.append({
+                                    'category': 'volumes',
+                                    'severity': 'high',
+                                    'title': 'High disk usage on Docker volumes',
+                                    'description': f'Docker volumes disk is {used_percent}% full',
+                                    'solution': 'Free up disk space or clean unused volumes: docker volume prune'
+                                })
+                            elif int(used_percent) > 70:
+                                self.issues.append({
+                                    'category': 'volumes',
+                                    'severity': 'medium',
+                                    'title': 'Moderate disk usage on Docker volumes',
+                                    'description': f'Docker volumes disk is {used_percent}% full',
+                                    'solution': 'Monitor disk space and consider cleanup: docker system df'
+                                })
+                            
+        except Exception as e:
+            console.print(f"[yellow]⚠ Cannot check volume space: {str(e)}[/yellow]")
+
+    def _check_volume_details(self):
+        """Check detailed volume information using docker volume inspect."""
+        try:
+            console.print("[cyan]Checking volume details...[/cyan]")
+            
+            # Get OPAL-specific volumes
+            volumes_result = subprocess.run(['docker', 'volume', 'ls', '--format', '{{.Name}}'], 
+                                          capture_output=True, text=True, check=True, timeout=10)
+            
+            opal_volumes = [vol.strip() for vol in volumes_result.stdout.split('\n') 
+                          if vol.strip() and self.stack_name in vol.strip()]
+            
+            for volume in opal_volumes:
+                inspect_result = subprocess.run(['docker', 'volume', 'inspect', volume], 
+                                              capture_output=True, text=True, check=True, timeout=10)
+                
+                if inspect_result.returncode == 0:
+                    volume_info = json.loads(inspect_result.stdout)[0]
+                    
+                    # Check volume driver
+                    driver = volume_info.get('Driver', 'unknown')
+                    mountpoint = volume_info.get('Mountpoint', 'unknown')
+                    
+                    console.print(f"[green]✓ Volume {volume}: driver={driver}[/green]")
+                    console.print(f"  [dim]Mountpoint: {mountpoint}[/dim]")
+                    
+                    # Check if mountpoint is accessible
+                    if mountpoint != 'unknown':
+                        try:
+                            # Try to check if mountpoint exists and is accessible
+                            if os.path.exists(mountpoint):
+                                console.print(f"  [green]✓ Mountpoint accessible[/green]")
+                                
+                                # Check if it has any data
+                                try:
+                                    files = os.listdir(mountpoint)
+                                    if files:
+                                        console.print(f"  [green]✓ Contains data ({len(files)} items)[/green]")
+                                    else:
+                                        console.print(f"  [yellow]⚠ Mountpoint is empty[/yellow]")
+                                except PermissionError:
+                                    console.print(f"  [yellow]⚠ Cannot read mountpoint contents (permission denied)[/yellow]")
+                            else:
+                                is_macos = self.environment_info.get('macos', False)
+                                if is_macos:
+                                    console.print(f"  [yellow]⚠ Mountpoint not accessible (normal on macOS)[/yellow]")
+                                    # Don't report this as an issue on macOS since it's expected behavior
+                                else:
+                                    console.print(f"  [yellow]⚠ Mountpoint not accessible[/yellow]")
+                                    self.issues.append({
+                                        'category': 'volumes',
+                                        'severity': 'medium',
+                                        'title': f'Volume mountpoint not accessible',
+                                        'description': f'Volume {volume} mountpoint {mountpoint} is not accessible',
+                                        'solution': 'Check Docker daemon and volume driver configuration'
+                                    })
+                        except Exception as e:
+                            console.print(f"  [yellow]⚠ Cannot check mountpoint: {str(e)}[/yellow]")
+                    
+                    # Check for volume labels
+                    labels = volume_info.get('Labels', {})
+                    if labels:
+                        console.print(f"  [dim]Labels: {labels}[/dim]")
+                    
+        except Exception as e:
+            console.print(f"[yellow]⚠ Cannot check volume details: {str(e)}[/yellow]")
+
+    def _check_macos_volume_permissions(self):
+        """Check volume permissions on macOS."""
+        try:
+            console.print("[cyan]Checking macOS volume permissions...[/cyan]")
+            
+            # Check running containers for volume access
+            containers_result = subprocess.run(['docker', 'ps', '--filter', f'name={self.stack_name}', '--format', '{{.Names}}'], 
+                                             capture_output=True, text=True, check=True, timeout=10)
+            
+            containers = [name.strip() for name in containers_result.stdout.split('\n') if name.strip()]
+            
+            for container in containers:
+                try:
+                    # Try to write a test file to verify permissions
+                    test_file = '/tmp/volume_test_' + str(int(time.time()))
+                    
+                    if 'mongo' in container:
+                        test_path = '/data/db'
+                    elif 'opal' in container:
+                        test_path = '/srv'
+                    elif 'rock' in container:
+                        test_path = '/srv'
+                    else:
+                        continue
+                    
+                    # Test write permissions
+                    write_test = subprocess.run(['docker', 'exec', container, 'touch', f'{test_path}/{test_file}'], 
+                                              capture_output=True, text=True, timeout=5)
+                    
+                    if write_test.returncode == 0:
+                        # Clean up test file
+                        subprocess.run(['docker', 'exec', container, 'rm', f'{test_path}/{test_file}'], 
+                                     capture_output=True, text=True, timeout=5)
+                        console.print(f"[green]✓ {container}: Volume write permissions OK[/green]")
+                    else:
+                        console.print(f"[red]✗ {container}: Cannot write to volume[/red]")
+                        self.issues.append({
+                            'category': 'volumes',
+                            'severity': 'high',
+                            'title': f'Volume write permission issue ({container})',
+                            'description': f'Container {container} cannot write to its volume at {test_path}',
+                            'solution': 'Check Docker Desktop file sharing settings and volume permissions'
+                        })
+                    
+                    # Test read permissions
+                    read_test = subprocess.run(['docker', 'exec', container, 'ls', '-la', test_path], 
+                                             capture_output=True, text=True, timeout=5)
+                    
+                    if read_test.returncode == 0:
+                        console.print(f"[green]✓ {container}: Volume read permissions OK[/green]")
+                    else:
+                        console.print(f"[red]✗ {container}: Cannot read from volume[/red]")
+                        self.issues.append({
+                            'category': 'volumes',
+                            'severity': 'high',
+                            'title': f'Volume read permission issue ({container})',
+                            'description': f'Container {container} cannot read from its volume at {test_path}',
+                            'solution': 'Check Docker Desktop file sharing settings and volume permissions'
+                        })
+                        
+                except Exception as e:
+                    console.print(f"[yellow]⚠ Cannot check permissions for {container}: {str(e)}[/yellow]")
+                    
+        except Exception as e:
+            console.print(f"[yellow]⚠ Cannot check macOS volume permissions: {str(e)}[/yellow]")
+
+    def _check_volume_persistence(self):
+        """Check that volumes persist data correctly."""
+        try:
+            console.print("[cyan]Checking volume persistence...[/cyan]")
+            
+            # Check volume age and usage
+            volumes_result = subprocess.run(['docker', 'volume', 'ls', '--format', '{{.Name}}'], 
+                                          capture_output=True, text=True, check=True, timeout=10)
+            
+            opal_volumes = [vol.strip() for vol in volumes_result.stdout.split('\n') 
+                          if vol.strip() and self.stack_name in vol.strip()]
+            
+            for volume in opal_volumes:
+                # Check when volume was created
+                inspect_result = subprocess.run(['docker', 'volume', 'inspect', volume], 
+                                              capture_output=True, text=True, check=True, timeout=10)
+                
+                if inspect_result.returncode == 0:
+                    volume_info = json.loads(inspect_result.stdout)[0]
+                    created_at = volume_info.get('CreatedAt', 'unknown')
+                    
+                    if created_at != 'unknown':
+                        console.print(f"[green]✓ Volume {volume}: created at {created_at}[/green]")
+                    
+                    # Check if volume is being used by any containers
+                    containers_result = subprocess.run(['docker', 'ps', '-a', '--filter', f'volume={volume}', '--format', '{{.Names}}'], 
+                                                     capture_output=True, text=True, timeout=10)
+                    
+                    if containers_result.returncode == 0:
+                        using_containers = [name.strip() for name in containers_result.stdout.split('\n') if name.strip()]
+                        
+                        if using_containers:
+                            console.print(f"[green]✓ Volume {volume}: used by {len(using_containers)} container(s)[/green]")
+                        else:
+                            console.print(f"[yellow]⚠ Volume {volume}: not used by any containers[/yellow]")
+                            self.issues.append({
+                                'category': 'volumes',
+                                'severity': 'medium',
+                                'title': f'Unused volume detected',
+                                'description': f'Volume {volume} is not being used by any containers',
+                                'solution': 'Check if this volume is needed or can be removed with: docker volume rm'
+                            })
+                    
+                    # Test data persistence by checking for expected files
+                    self._check_volume_data_integrity(volume)
+                    
+        except Exception as e:
+            console.print(f"[yellow]⚠ Cannot check volume persistence: {str(e)}[/yellow]")
+
+    def _check_volume_data_integrity(self, volume_name: str):
+        """Check if volume contains expected data for its service."""
+        try:
+            # Determine service type from volume name
+            service_type = None
+            if 'mongo' in volume_name:
+                service_type = 'mongo'
+            elif 'opal' in volume_name and 'data' in volume_name:
+                service_type = 'opal'
+            elif 'rock' in volume_name:
+                service_type = 'rock'
+            
+            if not service_type:
+                return
+                
+            # Find corresponding container
+            containers_result = subprocess.run(['docker', 'ps', '--filter', f'name={self.stack_name}-{service_type}', '--format', '{{.Names}}'], 
+                                             capture_output=True, text=True, check=True, timeout=10)
+            
+            containers = [name.strip() for name in containers_result.stdout.split('\n') if name.strip()]
+            
+            if not containers:
+                return
+                
+            container = containers[0]
+            
+            # Check for expected files/directories
+            if service_type == 'mongo':
+                # Check for MongoDB data files
+                check_result = subprocess.run(['docker', 'exec', container, 'ls', '-la', '/data/db'], 
+                                            capture_output=True, text=True, timeout=10)
+                if check_result.returncode == 0 and check_result.stdout.strip():
+                    if 'collection' in check_result.stdout or 'WiredTiger' in check_result.stdout:
+                        console.print(f"[green]✓ Volume {volume_name}: contains MongoDB data[/green]")
+                    else:
+                        console.print(f"[yellow]⚠ Volume {volume_name}: MongoDB data may be missing[/yellow]")
+                        
+            elif service_type == 'opal':
+                # Check for OPAL data files
+                check_result = subprocess.run(['docker', 'exec', container, 'ls', '-la', '/srv'], 
+                                            capture_output=True, text=True, timeout=10)
+                if check_result.returncode == 0 and check_result.stdout.strip():
+                    if 'conf' in check_result.stdout or 'data' in check_result.stdout:
+                        console.print(f"[green]✓ Volume {volume_name}: contains OPAL data[/green]")
+                    else:
+                        console.print(f"[yellow]⚠ Volume {volume_name}: OPAL data may be missing[/yellow]")
+                        
+            elif service_type == 'rock':
+                # Check for Rock data files
+                check_result = subprocess.run(['docker', 'exec', container, 'ls', '-la', '/srv'], 
+                                            capture_output=True, text=True, timeout=10)
+                if check_result.returncode == 0 and check_result.stdout.strip():
+                    console.print(f"[green]✓ Volume {volume_name}: contains Rock data[/green]")
+                    
+        except Exception as e:
+            console.print(f"[yellow]⚠ Cannot check data integrity for {volume_name}: {str(e)}[/yellow]")
+
+    def check_aws_volume_issues(self):
+        """Check AWS-specific volume configuration issues."""
+        console.print("\n[bold cyan]☁️ Checking AWS Volume Configuration[/bold cyan]")
+        
+        # Skip if not on AWS
+        if 'aws_instance_id' not in self.environment_info:
+            console.print("[green]✓ Not running on AWS[/green]")
+            return
+            
+        console.print(f"[yellow]⚠ Running on AWS instance: {self.environment_info['aws_instance_id']}[/yellow]")
+        
+        # Check EBS volume configuration
+        self._check_aws_ebs_volumes()
+        
+        # Check instance storage
+        self._check_aws_instance_storage()
+        
+        # Check volume performance
+        self._check_aws_volume_performance()
+        
+        # Check backup configuration
+        self._check_aws_backup_config()
+        
+        # Provide AWS-specific volume guidance
+        self._show_aws_volume_guidance()
+
+    def _check_aws_ebs_volumes(self):
+        """Check EBS volume configuration."""
+        try:
+            # Check mounted volumes
+            mount_result = subprocess.run(['mount'], capture_output=True, text=True, check=True, timeout=5)
+            
+            ebs_mounts = []
+            for line in mount_result.stdout.split('\n'):
+                if '/dev/nvme' in line or '/dev/xvd' in line:
+                    ebs_mounts.append(line.strip())
+            
+            if ebs_mounts:
+                console.print(f"[green]✓ Found {len(ebs_mounts)} EBS volumes mounted[/green]")
+                for mount in ebs_mounts:
+                    console.print(f"  {mount}")
+                    
+                # Check if Docker is using EBS storage
+                docker_root = self.environment_info.get('docker_info', {}).get('DockerRootDir', '/var/lib/docker')
+                df_result = subprocess.run(['df', docker_root], capture_output=True, text=True, check=True, timeout=5)
+                
+                if df_result.returncode == 0:
+                    docker_device = df_result.stdout.split('\n')[1].split()[0]
+                    if '/dev/nvme' in docker_device or '/dev/xvd' in docker_device:
+                        console.print(f"[green]✓ Docker is using EBS storage: {docker_device}[/green]")
+                        
+                        # Check EBS volume type and performance
+                        self._check_ebs_volume_type(docker_device)
+                    else:
+                        console.print(f"[yellow]⚠ Docker may not be using EBS storage: {docker_device}[/yellow]")
+                        self.issues.append({
+                            'category': 'aws_volumes',
+                            'severity': 'medium',
+                            'title': 'Docker not using EBS storage',
+                            'description': f'Docker root directory is on {docker_device}, not EBS',
+                            'solution': 'Consider moving Docker to EBS volume for better performance and persistence'
+                        })
+            else:
+                console.print("[yellow]⚠ No EBS volumes detected[/yellow]")
+                self.issues.append({
+                    'category': 'aws_volumes',
+                    'severity': 'medium',
+                    'title': 'No EBS volumes detected',
+                    'description': 'No EBS volumes found, data may not persist across instance restarts',
+                    'solution': 'Attach EBS volumes for persistent storage'
+                })
+                
+        except Exception as e:
+            console.print(f"[yellow]⚠ Cannot check EBS volumes: {str(e)}[/yellow]")
+
+    def _check_ebs_volume_type(self, device: str):
+        """Check EBS volume type and performance characteristics."""
+        try:
+            # Try to get volume information from AWS metadata
+            # This is a simplified check - in practice, you'd use AWS CLI or API
+            console.print(f"[cyan]Checking EBS volume type for {device}[/cyan]")
+            
+            # Check I/O performance
+            io_result = subprocess.run(['iostat', '-x', '1', '1'], capture_output=True, text=True, timeout=10)
+            
+            if io_result.returncode == 0:
+                # Look for the device in iostat output
+                lines = io_result.stdout.split('\n')
+                for line in lines:
+                    if device.split('/')[-1] in line:
+                        parts = line.split()
+                        if len(parts) >= 10:
+                            util = parts[9]  # %util column
+                            if util.replace('.', '').isdigit():
+                                util_percent = float(util)
+                                if util_percent > 80:
+                                    self.issues.append({
+                                        'category': 'aws_volumes',
+                                        'severity': 'high',
+                                        'title': 'High EBS volume utilization',
+                                        'description': f'EBS volume {device} has {util_percent}% utilization',
+                                        'solution': 'Consider upgrading to higher performance EBS volume (gp3, io1, io2)'
+                                    })
+                        break
+            
+            # Check for gp2 vs gp3 recommendations
+            self.issues.append({
+                'category': 'aws_volumes',
+                'severity': 'low',
+                'title': 'EBS volume type optimization',
+                'description': 'Consider upgrading to gp3 volumes for better price/performance',
+                'solution': 'AWS Console → EC2 → Volumes → Modify volume type to gp3'
+            })
+            
+        except Exception as e:
+            console.print(f"[yellow]⚠ Cannot check EBS volume performance: {str(e)}[/yellow]")
+
+    def _check_aws_instance_storage(self):
+        """Check AWS instance storage configuration."""
+        try:
+            # Check for instance store volumes
+            lsblk_result = subprocess.run(['lsblk'], capture_output=True, text=True, check=True, timeout=5)
+            
+            if 'nvme' in lsblk_result.stdout:
+                console.print("[green]✓ Instance has NVMe storage[/green]")
+                
+                # Check if instance store is being used
+                if 'instance-store' in lsblk_result.stdout or any('ephemeral' in line for line in lsblk_result.stdout.split('\n')):
+                    console.print("[yellow]⚠ Instance store detected[/yellow]")
+                    self.issues.append({
+                        'category': 'aws_volumes',
+                        'severity': 'high',
+                        'title': 'Instance store usage warning',
+                        'description': 'Instance store provides temporary storage that is lost on instance stop/termination',
+                        'solution': 'Use EBS volumes for persistent OPAL data storage'
+                    })
+                    
+            # Check instance type for storage recommendations
+            instance_type = self.environment_info.get('aws_instance_type', 'unknown')
+            if instance_type != 'unknown':
+                console.print(f"[green]✓ Instance type: {instance_type}[/green]")
+                
+                # Provide instance-specific storage recommendations
+                if instance_type.startswith('t'):
+                    self.issues.append({
+                        'category': 'aws_volumes',
+                        'severity': 'medium',
+                        'title': 'Burstable instance storage consideration',
+                        'description': f'T-series instances ({instance_type}) have burstable I/O performance',
+                        'solution': 'Monitor I/O credits and consider M-series instances for consistent performance'
+                    })
+                elif instance_type.startswith('m5'):
+                    console.print("[green]✓ Good instance type for general purpose workloads[/green]")
+                    
+        except Exception as e:
+            console.print(f"[yellow]⚠ Cannot check instance storage: {str(e)}[/yellow]")
+
+    def _check_aws_volume_performance(self):
+        """Check AWS volume performance issues."""
+        try:
+            console.print("[cyan]Checking volume performance...[/cyan]")
+            
+            # Check for common performance issues
+            # 1. Check if volumes are attached to the correct instance
+            # 2. Check IOPS and throughput
+            # 3. Check for bottlenecks
+            
+            # Simple disk performance test
+            docker_root = self.environment_info.get('docker_info', {}).get('DockerRootDir', '/var/lib/docker')
+            
+            # Check current I/O wait
+            iostat_result = subprocess.run(['iostat', '-x', '1', '1'], capture_output=True, text=True, timeout=10)
+            
+            if iostat_result.returncode == 0:
+                # Look for high I/O wait
+                lines = iostat_result.stdout.split('\n')
+                for line in lines:
+                    if 'avg-cpu' in line:
+                        continue
+                    if line.strip() and not line.startswith('Device'):
+                        parts = line.split()
+                        if len(parts) >= 4:
+                            try:
+                                iowait = float(parts[3])  # %iowait
+                                if iowait > 20:
+                                    self.issues.append({
+                                        'category': 'aws_volumes',
+                                        'severity': 'high',
+                                        'title': 'High I/O wait detected',
+                                        'description': f'I/O wait is {iowait}%, indicating storage bottleneck',
+                                        'solution': 'Consider upgrading EBS volume type or size for better IOPS'
+                                    })
+                            except ValueError:
+                                pass
+                        break
+            
+            # Check disk queue depth
+            self._check_disk_queue_depth()
+            
+        except Exception as e:
+            console.print(f"[yellow]⚠ Cannot check volume performance: {str(e)}[/yellow]")
+
+    def _check_disk_queue_depth(self):
+        """Check disk queue depth for performance optimization."""
+        try:
+            # Check current queue depth settings
+            sys_block_path = '/sys/block'
+            if os.path.exists(sys_block_path):
+                devices = [d for d in os.listdir(sys_block_path) if d.startswith('nvme') or d.startswith('xvd')]
+                
+                for device in devices:
+                    queue_path = f'{sys_block_path}/{device}/queue/nr_requests'
+                    if os.path.exists(queue_path):
+                        with open(queue_path, 'r') as f:
+                            queue_depth = int(f.read().strip())
+                            
+                        if queue_depth < 32:
+                            self.issues.append({
+                                'category': 'aws_volumes',
+                                'severity': 'medium',
+                                'title': 'Low disk queue depth',
+                                'description': f'Device {device} has queue depth {queue_depth}',
+                                'solution': f'Increase queue depth: echo 32 > /sys/block/{device}/queue/nr_requests'
+                            })
+                        else:
+                            console.print(f"[green]✓ Device {device}: queue depth {queue_depth}[/green]")
+                            
+        except Exception as e:
+            console.print(f"[yellow]⚠ Cannot check disk queue depth: {str(e)}[/yellow]")
+
+    def _check_aws_backup_config(self):
+        """Check AWS backup configuration for volumes."""
+        console.print("[cyan]Checking backup configuration...[/cyan]")
+        
+        # This is informational - we can't directly check AWS Backup settings
+        # but we can provide guidance
+        self.issues.append({
+            'category': 'aws_volumes',
+            'severity': 'low',
+            'title': 'AWS Backup configuration',
+            'description': 'Ensure EBS volumes are included in AWS Backup plans',
+            'solution': 'AWS Console → AWS Backup → Create backup plan for EBS volumes'
+        })
+        
+        # Check for snapshot tags
+        self.issues.append({
+            'category': 'aws_volumes',
+            'severity': 'low',
+            'title': 'EBS snapshot management',
+            'description': 'Configure automated EBS snapshots for data protection',
+            'solution': 'AWS Console → EC2 → Snapshots → Create snapshot schedule'
+        })
+
+    def _show_aws_volume_guidance(self):
+        """Show comprehensive AWS volume guidance."""
+        console.print("\n[bold cyan]💡 AWS Volume Best Practices[/bold cyan]")
+        
+        guidance = [
+            "1. **EBS Volume Types:**",
+            "   • Use gp3 for general purpose (better price/performance than gp2)",
+            "   • Use io1/io2 for high-performance databases",
+            "   • Use st1 for throughput-intensive workloads",
+            "",
+            "2. **Volume Size and Performance:**",
+            "   • Minimum 100GB for gp3 to get full 3,000 IOPS",
+            "   • Size affects both storage and performance",
+            "   • Monitor CloudWatch metrics for optimization",
+            "",
+            "3. **Mounting and Persistence:**",
+            "   • Mount EBS volumes at instance launch",
+            "   • Use consistent device names in /etc/fstab",
+            "   • Enable EBS optimization on instance",
+            "",
+            "4. **Security and Encryption:**",
+            "   • Enable EBS encryption at rest",
+            "   • Use KMS keys for encryption",
+            "   • Apply appropriate IAM permissions",
+            "",
+            "5. **Backup and Recovery:**",
+            "   • Schedule regular EBS snapshots",
+            "   • Use AWS Backup for automated backups",
+            "   • Test restore procedures regularly",
+            "",
+            "6. **Monitoring and Optimization:**",
+            "   • Monitor VolumeReadOps/VolumeWriteOps",
+            "   • Watch for IOPS credit balance (gp2)",
+            "   • Use CloudWatch Insights for analysis"
+        ]
+        
+        for line in guidance:
+            console.print(line)
+
     def check_system_resources(self):
         """Check system resources that might affect performance."""
         console.print("\n[bold cyan]💾 Checking System Resources[/bold cyan]")
         
+        # Skip detailed checks on macOS
+        if self.environment_info.get('macos'):
+            console.print("[yellow]⚠ Limited system resource checks on macOS[/yellow]")
+            return
+            
         try:
             # Check memory
             with open('/proc/meminfo', 'r') as f:
@@ -762,18 +1663,20 @@ class NetworkDiagnostic:
             # Check if running on macOS
             if self.environment_info.get('macos'):
                 console.print("\n[bold yellow]🍎 macOS Development Environment Detected[/bold yellow]")
-                console.print("This diagnostic tool is designed for Linux production environments.")
-                console.print("For macOS development, Docker and container connectivity will be tested.")
+                console.print("This diagnostic tool is designed for both Linux production and macOS development.")
+                console.print("For macOS development, comprehensive Docker, volume, and connectivity testing will be performed.")
                 console.print("\n[dim]💡 To test production issues, run this tool on your Linux server[/dim]")
                 
-                # Run basic checks including connectivity
-                basic_checks = [
+                # Run comprehensive checks for macOS
+                macos_checks = [
                     ("Testing Docker connectivity", self.check_docker_connectivity),
                     ("Checking container status", self.check_container_status),
                     ("Testing container connectivity", self.check_container_connectivity),
+                    ("Checking volume configuration", self.check_volume_issues),
+                    ("Checking system resources", self.check_system_resources),
                 ]
                 
-                for description, check_func in basic_checks:
+                for description, check_func in macos_checks:
                     task = progress.add_task(description, total=None)
                     try:
                         check_func()
@@ -817,9 +1720,11 @@ class NetworkDiagnostic:
                 ("Testing Docker connectivity", self.check_docker_connectivity),
                 ("Checking container status", self.check_container_status),
                 ("Testing container connectivity", self.check_container_connectivity),
+                ("Checking volume configuration", self.check_volume_issues),
                 ("Checking SELinux configuration", self.check_selinux_issues),
                 ("Checking firewall configuration", self.check_firewall_issues),
                 ("Checking AWS configuration", self.check_aws_issues),
+                ("Checking AWS volume configuration", self.check_aws_volume_issues),
                 ("Checking Docker network configuration", self.check_docker_network_issues),
                 ("Checking DNS resolution", self.check_dns_issues),
                 ("Checking system resources", self.check_system_resources)

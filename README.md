@@ -154,7 +154,10 @@ Comprehensive network diagnostic tool for OPAL installations that identifies and
 **Features:**
 - Tests Docker connectivity and container status
 - **Checks inter-container communication** (OPAL ↔ MongoDB, OPAL ↔ Rock)
-- Identifies SELinux configuration issues
+- **Comprehensive volume diagnostics** (mounting, permissions, space usage, data integrity)
+- **Cross-platform volume testing** (macOS and Linux optimized)
+- **AWS-specific volume analysis** (EBS, instance storage, performance)
+- **Advanced SELinux diagnostics** (booleans, contexts, volume security)
 - Detects AWS-specific networking problems
 - Analyzes firewall and iptables configuration
 - Tests DNS resolution
@@ -171,9 +174,9 @@ Comprehensive network diagnostic tool for OPAL installations that identifies and
 - **SELinux**: Offers SELinux boolean configuration and policy recommendations
 - **Firewall**: Detects and configures UFW, iptables, and firewalld issues
 - **Docker**: Checks version compatibility and networking configuration
-- **macOS**: Provides basic Docker connectivity testing for development environments
+- **macOS**: Provides comprehensive Docker, volume, and container connectivity testing for development environments
 
-**Note:** This diagnostic tool is primarily designed for Linux production environments. On macOS, only basic Docker connectivity tests are performed.
+**Note:** This diagnostic tool is designed for both Linux production environments and macOS development environments. On macOS, comprehensive volume and connectivity testing is performed with macOS-specific optimizations.
 
 ---
 
@@ -229,3 +232,9 @@ This tool uses a hybrid approach for data persistence to balance ease of managem
 -   **Named Docker Volumes**:
     -   **What**: Used for all application-generated data, including the MongoDB database, Opal server data, and all Rock profile data.
     -   **Why**: This is the recommended Docker approach for managing the state of stateful applications. Docker manages the lifecycle of this data, which abstracts it from the host machine's filesystem, improves I/O performance, and simplifies data management across different environments.
+
+## 📚 Additional Documentation
+
+- [SSL Configuration Guide](./docs/SSL_CONFIGURATION.md): Comprehensive guide for SSL/TLS setup
+- [Troubleshooting Guide](./docs/TROUBLESHOOTING.md): Common issues and solutions
+- [AWS Volume Troubleshooting](./docs/AWS_VOLUME_TROUBLESHOOTING.md): AWS-specific volume, SELinux, and performance issues
