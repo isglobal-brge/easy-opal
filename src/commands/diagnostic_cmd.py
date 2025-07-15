@@ -1201,10 +1201,10 @@ class NetworkDiagnostic:
             service_type = None
             if 'mongo' in volume_name:
                 service_type = 'mongo'
-            elif 'opal' in volume_name and 'data' in volume_name:
-                service_type = 'opal'
             elif 'rock' in volume_name:
                 service_type = 'rock'
+            elif 'opal' in volume_name and 'data' in volume_name:
+                service_type = 'opal'
             
             if not service_type:
                 return
