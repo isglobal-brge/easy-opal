@@ -145,6 +145,36 @@ Performs a factory reset of the environment. Running it without flags starts an 
 -   `./easy-opal down`: Stops the stack's containers.
 -   `./easy-opal status`: Shows the status of the running containers.
 
+### `diagnose`
+
+Comprehensive network diagnostic tool for OPAL installations that identifies and helps resolve connectivity issues.
+
+-   `./easy-opal diagnose`
+
+**Features:**
+- Tests Docker connectivity and container status
+- **Checks inter-container communication** (OPAL ↔ MongoDB, OPAL ↔ Rock)
+- Identifies SELinux configuration issues
+- Detects AWS-specific networking problems
+- Analyzes firewall and iptables configuration
+- Tests DNS resolution
+- Provides detailed explanations and automated fixes
+- Offers to start containers if needed for connectivity testing
+
+**Flags:**
+- `--quick`: Run quick diagnostic (skip detailed checks)
+- `--fix`: Automatically apply safe fixes
+- `--json`: Output results in JSON format
+
+**Environment-Specific Support:**
+- **AWS**: Provides guidance for Security Groups, NACLs, and VPC configuration
+- **SELinux**: Offers SELinux boolean configuration and policy recommendations
+- **Firewall**: Detects and configures UFW, iptables, and firewalld issues
+- **Docker**: Checks version compatibility and networking configuration
+- **macOS**: Provides basic Docker connectivity testing for development environments
+
+**Note:** This diagnostic tool is primarily designed for Linux production environments. On macOS, only basic Docker connectivity tests are performed.
+
 ---
 
 ### `config`

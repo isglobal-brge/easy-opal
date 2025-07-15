@@ -261,11 +261,43 @@ docker-compose logs -f
 
 ---
 
+## Automated Diagnostics
+
+**NEW: Use the built-in diagnostic tool for comprehensive troubleshooting:**
+
+```bash
+# Run full diagnostic
+./easy-opal diagnose
+
+# Quick diagnostic
+./easy-opal diagnose --quick
+
+# Apply automatic fixes
+./easy-opal diagnose --fix
+
+# JSON output for automation
+./easy-opal diagnose --json
+```
+
+The diagnostic tool automatically:
+- Tests Docker connectivity and container status
+- Checks inter-container communication
+- Identifies SELinux/AppArmor issues
+- Detects AWS-specific networking problems
+- Analyzes firewall configuration
+- Tests DNS resolution
+- Provides environment-specific solutions
+
 ## Getting Help
 
-If none of these solutions work:
+If the diagnostic tool doesn't resolve your issues:
 
-1. **Gather debug information:**
+1. **Run the diagnostic tool first:**
+   ```bash
+   ./easy-opal diagnose --json > diagnostic_report.json
+   ```
+
+2. **Gather additional debug information:**
    ```bash
    # System info
    uname -a
@@ -288,4 +320,4 @@ If none of these solutions work:
    echo "Docker version: $DOCKER_VERSION"
    ```
 
-2. **Create an issue** with the debug information at: [GitHub Issues](https://github.com/isglobal-brge/easy-opal/issues) 
+3. **Create an issue** with the diagnostic report and debug information at: [GitHub Issues](https://github.com/isglobal-brge/easy-opal/issues) 
