@@ -155,6 +155,7 @@ Comprehensive network diagnostic tool for OPAL installations that identifies and
 - Tests Docker connectivity and container status
 - **Checks inter-container communication** (OPAL ↔ MongoDB, OPAL ↔ Rock)
 - **Comprehensive volume diagnostics** (mounting, permissions, space usage, data integrity)
+- **Smart container-aware volume testing** (nginx dynamic config, persistent data services)
 - **Cross-platform volume testing** (macOS and Linux optimized)
 - **AWS-specific volume analysis** (EBS, instance storage, performance)
 - **Advanced SELinux diagnostics** (booleans, contexts, volume security)

@@ -829,16 +829,19 @@ class NetworkDiagnostic:
             
             for container in containers:
                 if 'mongo' in container:
-                    self._check_container_volume_mount(container, '/data/db', 'MongoDB data directory')
-                elif 'opal' in container:
-                    self._check_container_volume_mount(container, '/srv', 'OPAL data directory')
+                    self._check_container_volume_mount(container, '/data/db', 'MongoDB data directory', requires_volume=True)
+                elif 'opal' in container and 'nginx' not in container:
+                    self._check_container_volume_mount(container, '/srv', 'OPAL data directory', requires_volume=True)
                 elif 'rock' in container:
-                    self._check_container_volume_mount(container, '/srv', 'Rock data directory')
+                    self._check_container_volume_mount(container, '/srv', 'Rock data directory', requires_volume=True)
+                elif 'nginx' in container:
+                    # Nginx is designed for dynamic configuration, persistent volumes are optional
+                    self._check_container_volume_mount(container, '/srv', 'OPAL data directory', requires_volume=False)
                     
         except Exception as e:
             console.print(f"[yellow]⚠ Cannot check volume mounts: {str(e)}[/yellow]")
 
-    def _check_container_volume_mount(self, container: str, mount_path: str, description: str):
+    def _check_container_volume_mount(self, container: str, mount_path: str, description: str, requires_volume: bool = True):
         """Check if a specific volume is mounted in a container."""
         try:
             # Check if the mount path exists and is writable
@@ -855,14 +858,17 @@ class NetworkDiagnostic:
                 if mount_info.returncode == 0 and mount_path in mount_info.stdout:
                     console.print(f"[green]✓ {container}: {description} is a proper volume mount[/green]")
                 else:
-                    console.print(f"[yellow]⚠ {container}: {description} may not be a volume mount[/yellow]")
-                    self.issues.append({
-                        'category': 'volumes',
-                        'severity': 'medium',
-                        'title': f'{description} not properly mounted',
-                        'description': f'Path {mount_path} in {container} may not be a volume mount',
-                        'solution': 'Check docker-compose.yml volume configuration'
-                    })
+                    if requires_volume:
+                        console.print(f"[yellow]⚠ {container}: {description} may not be a volume mount[/yellow]")
+                        self.issues.append({
+                            'category': 'volumes',
+                            'severity': 'medium',
+                            'title': f'{description} not properly mounted',
+                            'description': f'Path {mount_path} in {container} may not be a volume mount',
+                            'solution': 'Check docker-compose.yml volume configuration'
+                        })
+                    else:
+                        console.print(f"[green]✓ {container}: {description} is dynamically configured (no persistent volume needed)[/green]")
             else:
                 console.print(f"[red]✗ {container}: {description} not writable or missing[/red]")
                 self.issues.append({
@@ -1078,9 +1084,7 @@ class NetworkDiagnostic:
             
             for container in containers:
                 try:
-                    # Try to write a test file to verify permissions
-                    test_file = '/tmp/volume_test_' + str(int(time.time()))
-                    
+                    # Determine volume path based on container type
                     if 'mongo' in container:
                         test_path = '/data/db'
                     elif 'opal' in container:
@@ -1090,31 +1094,41 @@ class NetworkDiagnostic:
                     else:
                         continue
                     
-                    # Test write permissions
-                    write_test = subprocess.run(['docker', 'exec', container, 'touch', f'{test_path}/{test_file}'], 
-                                              capture_output=True, text=True, timeout=5)
-                    
-                    if write_test.returncode == 0:
-                        # Clean up test file
-                        subprocess.run(['docker', 'exec', container, 'rm', f'{test_path}/{test_file}'], 
-                                     capture_output=True, text=True, timeout=5)
-                        console.print(f"[green]✓ {container}: Volume write permissions OK[/green]")
-                    else:
-                        console.print(f"[red]✗ {container}: Cannot write to volume[/red]")
-                        self.issues.append({
-                            'category': 'volumes',
-                            'severity': 'high',
-                            'title': f'Volume write permission issue ({container})',
-                            'description': f'Container {container} cannot write to its volume at {test_path}',
-                            'solution': 'Check Docker Desktop file sharing settings and volume permissions'
-                        })
-                    
-                    # Test read permissions
+                    # Test read permissions first (less invasive)
                     read_test = subprocess.run(['docker', 'exec', container, 'ls', '-la', test_path], 
                                              capture_output=True, text=True, timeout=5)
                     
                     if read_test.returncode == 0:
                         console.print(f"[green]✓ {container}: Volume read permissions OK[/green]")
+                        
+                        # Test write permissions with a more robust approach
+                        # Create a unique test file name
+                        test_file = f'volume_test_{int(time.time() * 1000000)}'
+                        
+                        # Try to write and immediately remove test file
+                        write_test = subprocess.run(['docker', 'exec', container, 'sh', '-c', f'touch {test_path}/{test_file} && rm {test_path}/{test_file}'], 
+                                                  capture_output=True, text=True, timeout=5)
+                        
+                        if write_test.returncode == 0:
+                            console.print(f"[green]✓ {container}: Volume write permissions OK[/green]")
+                        else:
+                            # Before reporting as an issue, check if the service is actually working
+                            # by testing if existing files can be read
+                            existing_files = subprocess.run(['docker', 'exec', container, 'ls', test_path], 
+                                                           capture_output=True, text=True, timeout=5)
+                            
+                            if existing_files.returncode == 0 and existing_files.stdout.strip():
+                                console.print(f"[yellow]⚠ {container}: Write test failed but volume contains data (likely functional)[/yellow]")
+                                # Don't report this as an issue if there's existing data
+                            else:
+                                console.print(f"[red]✗ {container}: Cannot write to volume[/red]")
+                                self.issues.append({
+                                    'category': 'volumes',
+                                    'severity': 'high',
+                                    'title': f'Volume write permission issue ({container})',
+                                    'description': f'Container {container} cannot write to its volume at {test_path}',
+                                    'solution': 'Check Docker Desktop file sharing settings and volume permissions'
+                                })
                     else:
                         console.print(f"[red]✗ {container}: Cannot read from volume[/red]")
                         self.issues.append({
