@@ -318,82 +318,84 @@ class NetworkDiagnostic:
                 })
                 return
             
-            # Test port connectivity first (more reliable than ping)
+            # Test port connectivity using the most reliable methods first
             console.print(f"[cyan]Testing connectivity from {from_container} to {to_host}:{port} ({service_name})[/cyan]")
             
-            # Try netcat first
-            nc_result = subprocess.run(['docker', 'exec', from_container, 'nc', '-z', '-w', '5', to_host, str(port)], 
-                                     capture_output=True, text=True, timeout=10)
+            # Method 1: Try socket test first (most reliable, always available in bash)
+            socket_test = subprocess.run(['docker', 'exec', from_container, 'timeout', '5', 
+                                        'bash', '-c', f'exec 6<>/dev/tcp/{to_host}/{port} && echo "Connection successful"'], 
+                                       capture_output=True, text=True, timeout=10)
             
-            if nc_result.returncode == 0:
+            if socket_test.returncode == 0:
                 console.print(f"[green]✓ {from_container} can connect to {to_host}:{port} ({service_name})[/green]")
+                return
+            
+            # Method 2: Try netcat if available
+            nc_check = subprocess.run(['docker', 'exec', from_container, 'which', 'nc'], 
+                                    capture_output=True, text=True, timeout=5)
+            
+            if nc_check.returncode == 0:
+                nc_result = subprocess.run(['docker', 'exec', from_container, 'nc', '-z', '-w', '3', to_host, str(port)], 
+                                         capture_output=True, text=True, timeout=10)
                 
-                # Optional: Test ping if available (for additional diagnostics)
-                ping_result = subprocess.run(['docker', 'exec', from_container, 'ping', '-c', '1', '-W', '2', to_host], 
-                                           capture_output=True, text=True, timeout=5)
+                if nc_result.returncode == 0:
+                    console.print(f"[green]✓ {from_container} can connect to {to_host}:{port} ({service_name}) via netcat[/green]")
+                    return
+            
+            # Method 3: Try curl for HTTP ports
+            if port in [80, 443, 8080, 8443]:
+                curl_check = subprocess.run(['docker', 'exec', from_container, 'which', 'curl'], 
+                                          capture_output=True, text=True, timeout=5)
                 
-                if ping_result.returncode == 0:
-                    console.print(f"[green]✓ {from_container} can also ping {to_host}[/green]")
-                else:
-                    console.print(f"[yellow]⚠ {from_container} cannot ping {to_host} (ping not available or disabled)[/yellow]")
-                    console.print(f"[dim]   This is normal - many containers don't include ping[/dim]")
-                    
-            else:
-                # Try alternative methods if netcat fails
-                console.print(f"[yellow]⚠ netcat test failed, trying alternative methods...[/yellow]")
-                
-                # Try curl/wget to test HTTP connectivity
-                if port in [80, 443, 8080, 8443]:
+                if curl_check.returncode == 0:
                     protocol = "https" if port in [443, 8443] else "http"
-                    curl_result = subprocess.run(['docker', 'exec', from_container, 'curl', '-s', '--max-time', '5', 
+                    curl_result = subprocess.run(['docker', 'exec', from_container, 'curl', '-s', '--max-time', '3', 
                                                 f'{protocol}://{to_host}:{port}/'], 
                                                capture_output=True, text=True, timeout=10)
                     
                     if curl_result.returncode == 0 or "Connection refused" not in curl_result.stderr:
                         console.print(f"[green]✓ {from_container} can connect to {to_host}:{port} ({service_name}) via HTTP[/green]")
                         return
-                
-                # Try telnet as final fallback
-                telnet_test = subprocess.run(['docker', 'exec', from_container, 'timeout', '5', 
+            
+            # Method 4: Try telnet if available
+            telnet_check = subprocess.run(['docker', 'exec', from_container, 'which', 'telnet'], 
+                                        capture_output=True, text=True, timeout=5)
+            
+            if telnet_check.returncode == 0:
+                telnet_test = subprocess.run(['docker', 'exec', from_container, 'timeout', '3', 
                                             'bash', '-c', f'echo "" | telnet {to_host} {port}'], 
                                            capture_output=True, text=True, timeout=10)
                 
                 if telnet_test.returncode == 0 or "Connected" in telnet_test.stdout:
                     console.print(f"[green]✓ {from_container} can connect to {to_host}:{port} ({service_name}) via telnet[/green]")
-                else:
-                    # Try a simple socket test using bash
-                    socket_test = subprocess.run(['docker', 'exec', from_container, 'timeout', '5', 
-                                                'bash', '-c', f'exec 6<>/dev/tcp/{to_host}/{port}; echo "Connection successful"'], 
-                                               capture_output=True, text=True, timeout=10)
-                    
-                    if socket_test.returncode == 0:
-                        console.print(f"[green]✓ {from_container} can connect to {to_host}:{port} ({service_name}) via socket[/green]")
-                    else:
-                        console.print(f"[red]✗ {from_container} cannot connect to {to_host}:{port} ({service_name})[/red]")
-                        console.print(f"[dim]   Tried multiple connection methods (nc, telnet, socket)[/dim]")
-                        
-                        # Check if the service is actually listening
-                        listen_check = subprocess.run(['docker', 'exec', target_container, 'ss', '-tlnp'], 
-                                                    capture_output=True, text=True, timeout=5)
-                        
-                        if listen_check.returncode == 0 and f":{port}" in listen_check.stdout:
-                            console.print(f"[yellow]⚠ {service_name} is listening on port {port} but not accessible[/yellow]")
-                            self.issues.append({
-                                'category': 'connectivity',
-                                'severity': 'high',
-                                'title': f'Cannot connect to {service_name} port',
-                                'description': f'Container {from_container} cannot connect to {to_host}:{port}, but service is listening',
-                                'solution': f'Check firewall rules and Docker network configuration'
-                            })
-                        else:
-                            console.print(f"[red]✗ {service_name} may not be listening on port {port}[/red]")
-                            self.issues.append({
-                                'category': 'connectivity',
-                                'severity': 'high',
-                                'title': f'{service_name} not listening on expected port',
-                                'description': f'{service_name} service is not listening on port {port}',
-                                'solution': f'Check {service_name} service configuration and startup logs'
-                            })
+                    return
+            
+            # If all methods fail, report the issue
+            console.print(f"[red]✗ {from_container} cannot connect to {to_host}:{port} ({service_name})[/red]")
+            console.print(f"[dim]   Attempted multiple connection methods[/dim]")
+            
+            # Check if the service is actually listening
+            listen_check = subprocess.run(['docker', 'exec', target_container, 'ss', '-tlnp'], 
+                                        capture_output=True, text=True, timeout=5)
+            
+            if listen_check.returncode == 0 and f":{port}" in listen_check.stdout:
+                console.print(f"[yellow]⚠ {service_name} is listening on port {port} but not accessible[/yellow]")
+                self.issues.append({
+                    'category': 'connectivity',
+                    'severity': 'high',
+                    'title': f'Cannot connect to {service_name} port',
+                    'description': f'Container {from_container} cannot connect to {to_host}:{port}, but service is listening',
+                    'solution': f'Check firewall rules and Docker network configuration'
+                })
+            else:
+                console.print(f"[red]✗ {service_name} may not be listening on port {port}[/red]")
+                self.issues.append({
+                    'category': 'connectivity',
+                    'severity': 'high',
+                    'title': f'{service_name} not listening on expected port',
+                    'description': f'{service_name} service is not listening on port {port}',
+                    'solution': f'Check {service_name} service configuration and startup logs'
+                })
                 
         except subprocess.TimeoutExpired:
             console.print(f"[red]✗ Connection test to {to_host}:{port} timed out[/red]")
