@@ -1547,9 +1547,11 @@ class NetworkDiagnostic:
         """Check system resources that might affect performance."""
         console.print("\n[bold cyan]💾 Checking System Resources[/bold cyan]")
         
-        # Skip detailed checks on macOS
-        if self.environment_info.get('macos'):
-            console.print("[yellow]⚠ Limited system resource checks on macOS[/yellow]")
+        is_macos = self.environment_info.get('macos', False)
+        
+        # macOS-specific resource checks
+        if is_macos:
+            self._check_macos_resources()
             return
             
         try:
@@ -1594,6 +1596,111 @@ class NetworkDiagnostic:
                         
         except Exception as e:
             console.print(f"[yellow]⚠ Cannot check system resources: {str(e)}[/yellow]")
+
+    def _check_macos_resources(self):
+        """Check system resources on macOS."""
+        try:
+            # Check memory usage
+            vm_stat = subprocess.run(['vm_stat'], capture_output=True, text=True, check=True, timeout=5)
+            
+            if vm_stat.returncode == 0:
+                # Parse vm_stat output for memory info
+                lines = vm_stat.stdout.split('\n')
+                for line in lines:
+                    if 'Pages free:' in line:
+                        free_pages = int(line.split(':')[1].strip().rstrip('.'))
+                        free_mb = (free_pages * 4096) / (1024 * 1024)  # 4KB pages
+                        console.print(f"[green]✓ Memory: {free_mb:.0f}MB free pages[/green]")
+                        break
+                        
+            # Check memory pressure
+            memory_pressure = subprocess.run(['memory_pressure'], capture_output=True, text=True, timeout=5)
+            
+            if memory_pressure.returncode == 0:
+                if 'normal' in memory_pressure.stdout.lower():
+                    console.print("[green]✓ Memory pressure: normal[/green]")
+                elif 'warn' in memory_pressure.stdout.lower():
+                    console.print("[yellow]⚠ Memory pressure: warning[/yellow]")
+                    self.issues.append({
+                        'category': 'resources',
+                        'severity': 'medium',
+                        'title': 'Memory pressure warning (macOS)',
+                        'description': 'System is under memory pressure',
+                        'solution': 'Close applications or restart Docker Desktop'
+                    })
+                elif 'critical' in memory_pressure.stdout.lower():
+                    console.print("[red]✗ Memory pressure: critical[/red]")
+                    self.issues.append({
+                        'category': 'resources',
+                        'severity': 'high',
+                        'title': 'Critical memory pressure (macOS)',
+                        'description': 'System is under critical memory pressure',
+                        'solution': 'Restart system or increase available memory'
+                    })
+            
+            # Check disk space
+            df_result = subprocess.run(['df', '-h', '/'], capture_output=True, text=True, check=True, timeout=5)
+            
+            if df_result.returncode == 0:
+                lines = df_result.stdout.split('\n')
+                if len(lines) > 1:
+                    parts = lines[1].split()
+                    if len(parts) >= 5:
+                        used_percent = parts[4].rstrip('%')
+                        total_space = parts[1]
+                        available_space = parts[3]
+                        
+                        console.print(f"[green]✓ Disk space: {used_percent}% used ({available_space} available of {total_space})[/green]")
+                        
+                        if int(used_percent) > 90:
+                            self.issues.append({
+                                'category': 'resources',
+                                'severity': 'high',
+                                'title': 'Low disk space (macOS)',
+                                'description': f'System disk is {used_percent}% full',
+                                'solution': 'Free up disk space or clean Docker: docker system prune'
+                            })
+                        elif int(used_percent) > 80:
+                            self.issues.append({
+                                'category': 'resources',
+                                'severity': 'medium',
+                                'title': 'Moderate disk usage (macOS)',
+                                'description': f'System disk is {used_percent}% full',
+                                'solution': 'Monitor disk space and consider cleanup'
+                            })
+            
+            # Check Docker Desktop resource allocation
+            docker_info = self.environment_info.get('docker_info', {})
+            if docker_info:
+                total_memory = docker_info.get('MemTotal', 0)
+                if total_memory > 0:
+                    memory_gb = total_memory / (1024**3)
+                    console.print(f"[green]✓ Docker Desktop allocated memory: {memory_gb:.1f}GB[/green]")
+                    
+                    if memory_gb < 4:
+                        self.issues.append({
+                            'category': 'resources',
+                            'severity': 'medium',
+                            'title': 'Low Docker memory allocation (macOS)',
+                            'description': f'Docker Desktop has only {memory_gb:.1f}GB allocated',
+                            'solution': 'Increase Docker Desktop memory allocation in preferences'
+                        })
+                        
+                cpus = docker_info.get('NCPU', 0)
+                if cpus > 0:
+                    console.print(f"[green]✓ Docker Desktop allocated CPUs: {cpus}[/green]")
+                    
+                    if cpus < 2:
+                        self.issues.append({
+                            'category': 'resources',
+                            'severity': 'medium',
+                            'title': 'Low Docker CPU allocation (macOS)',
+                            'description': f'Docker Desktop has only {cpus} CPU(s) allocated',
+                            'solution': 'Increase Docker Desktop CPU allocation in preferences'
+                        })
+            
+        except Exception as e:
+            console.print(f"[yellow]⚠ Cannot check macOS system resources: {str(e)}[/yellow]")
             
     def generate_report(self):
         """Generate a comprehensive diagnostic report."""
