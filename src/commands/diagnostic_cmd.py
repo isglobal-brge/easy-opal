@@ -330,8 +330,9 @@ class ContainerDiagnostics:
         if "mongo" in running_containers and "opal" in running_containers:
             planned_tests.append(("opal", "mongo", 27017, "Opal → MongoDB (database connection)"))
         
-        # Test reverse proxy connectivity (if nginx exists)
-        if "nginx" in running_containers and "opal" in running_containers:
+        # Test reverse proxy connectivity (only if nginx exists - not in reverse-proxy mode)
+        ssl_strategy = self.config.get('ssl', {}).get('strategy', 'self-signed')
+        if ssl_strategy != 'reverse-proxy' and "nginx" in running_containers and "opal" in running_containers:
             planned_tests.append(("nginx", "opal", 8080, "Nginx → Opal (reverse proxy)"))
         
         # Test Rock container connectivity (all Rock containers)
@@ -468,6 +469,11 @@ class ContainerDiagnostics:
         if ssl_strategy == 'reverse-proxy':
             # In reverse-proxy mode, Opal is exposed directly on HTTP port
             http_port = self.config.get('opal_http_port', 8080)
+            
+            # Add important reminder about HTTPS proxy requirement
+            console.print("[yellow]💡 Reminder: In reverse-proxy mode, you need to provide your own HTTPS proxy solution.[/yellow]")
+            console.print("[dim]   The HTTP port tested here should only be accessible via your HTTPS proxy.[/dim]")
+            
             http_test = self._test_port_accessibility('localhost', http_port, f'Opal HTTP (reverse-proxy mode, port {http_port})')
             port_tests.append(http_test)
         else:
@@ -648,8 +654,17 @@ class ContainerDiagnostics:
         hosts = self.config.get('hosts', ['localhost'])
         
         if ssl_strategy == 'reverse-proxy':
-            # In reverse-proxy mode, test HTTP directly
+            # In reverse-proxy mode, test HTTP directly to Opal container
             port = self.config.get('opal_http_port', 8080)
+            
+            # Add important reminder about HTTPS proxy requirement
+            console.print("[yellow]💡 Reminder: In reverse-proxy mode, you need to provide your own HTTPS proxy solution.[/yellow]")
+            console.print("[dim]   Opal requires HTTPS for security. The HTTP endpoint tested here should be behind an HTTPS proxy.[/dim]")
+            
+            # In reverse-proxy mode, hosts list is empty, so test localhost directly
+            if not hosts:
+                hosts = ['localhost']
+            
             for host in hosts:
                 base_url = f"http://{host}:{port}"
                 
@@ -953,8 +968,11 @@ class ContainerDiagnostics:
             "service-endpoints": [
                 "Wait a few minutes for services to fully start up",
                 "Check container logs for startup errors",
-                "Verify the nginx configuration is correct",
-                "Test individual container endpoints directly"
+                "Verify the nginx configuration is correct (if not using reverse-proxy mode)",
+                "For reverse-proxy mode: ensure your external HTTPS proxy is configured and running",
+                "For reverse-proxy mode: verify your proxy forwards correctly to the HTTP port",
+                "Test individual container endpoints directly",
+                "Remember: Opal requires HTTPS for security in production"
             ]
         }
         
