@@ -46,6 +46,32 @@ The latest version of easy-opal automatically detects both versions. If you're s
    sudo apt-get install docker-compose-plugin
    ```
 
+### Automatic Docker Installation
+
+**The `--upgrade-docker` flag supports comprehensive installation across platforms:**
+
+- ✅ **Ubuntu/Debian**: Official Docker CE repository
+- ✅ **Fedora**: Official Docker CE repository  
+- ✅ **CentOS/RHEL 8+**: Official Docker CE repository
+- ✅ **Arch/Manjaro**: Community packages
+- ✅ **openSUSE/SLES**: Official Docker CE repository
+- ✅ **Alpine Linux**: Community packages
+- ✅ **Void Linux**: Native packages
+- ✅ **Gentoo**: Portage packages
+- ✅ **Clear Linux**: Container bundles
+- ⚠️ **FreeBSD**: Podman (Docker-compatible)
+- ⚠️ **NixOS**: System configuration required
+- ❌ **macOS**: Docker Desktop (manual install)
+
+**Usage:**
+```bash
+# Install Docker automatically
+./setup --upgrade-docker
+
+# Combined Python + Docker upgrade
+./setup --upgrade-python --upgrade-docker
+```
+
 ### Docker Version Compatibility
 
 **Supported Docker Versions:**
@@ -60,8 +86,9 @@ docker info
 ```
 
 **If you have an older Docker version:**
-- **Ubuntu/Debian**: `sudo apt-get update && sudo apt-get install docker-ce`
-- **CentOS/RHEL**: `sudo yum update docker-ce`
+- **Ubuntu/Debian**: `./setup --upgrade-docker` or `sudo apt-get install docker-ce`
+- **CentOS/RHEL**: `./setup --upgrade-docker` or `sudo dnf install docker-ce`
+- **All systems**: Use `./setup --upgrade-docker` for automatic installation
 - **Manual upgrade**: Follow [Docker's official installation guide](https://docs.docker.com/engine/install/)
 
 **Version-specific notes:**

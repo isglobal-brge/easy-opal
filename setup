@@ -376,6 +376,68 @@ install_docker() {
             sudo xbps-install -y docker docker-compose
             ;;
             
+        gentoo)
+            echo "Installing Docker on Gentoo..."
+            
+            # Install Docker via Portage
+            sudo emerge --ask=n app-containers/docker app-containers/docker-compose
+            
+            # Add user to docker group
+            sudo gpasswd -a $(whoami) docker
+            ;;
+            
+        nixos)
+            echo "Installing Docker on NixOS..."
+            echo "⚠️  NixOS requires system configuration for Docker:"
+            echo "1. Add to /etc/nixos/configuration.nix:"
+            echo "   virtualisation.docker.enable = true;"
+            echo "   users.users.$(whoami).extraGroups = [ \"docker\" ];"
+            echo "2. Run: sudo nixos-rebuild switch"
+            echo "3. Log out and back in for group changes"
+            echo "4. Re-run this script after system rebuild"
+            echo ""
+            return 1
+            ;;
+            
+        clear-linux-os)
+            echo "Installing Docker on Clear Linux..."
+            
+            # Install Docker bundle
+            sudo swupd bundle-add containers-basic
+            
+            # Enable and start Docker service
+            sudo systemctl enable docker
+            sudo systemctl start docker
+            ;;
+            
+        freebsd)
+            echo "Installing container runtime on FreeBSD..."
+            echo "⚠️  Docker doesn't run natively on FreeBSD. Available options:"
+            echo ""
+            echo "📋 Option 1: Use Podman (Docker-compatible)"
+            echo "   sudo pkg install podman"
+            echo "   # Then use 'podman' instead of 'docker'"
+            echo ""
+            echo "📋 Option 2: Use Linux compatibility layer"
+            echo "   sudo pkg install linux-c7-docker-ce"
+            echo "   # Requires Linux compatibility enabled"
+            echo ""
+            echo "📋 Option 3: Use bhyve VM with Linux + Docker"
+            echo "   # Set up a Linux VM for Docker workloads"
+            echo ""
+            echo "For this setup script, we recommend using Podman:"
+            
+            if sudo pkg install -y podman; then
+                echo "✅ Podman installed successfully"
+                echo "💡 Note: Use 'podman' commands instead of 'docker'"
+                echo "   You can alias: alias docker=podman"
+                return 0
+            else
+                echo "❌ Failed to install Podman"
+                return 1
+            fi
+            ;;
+            
         *)
             echo "❌ Automatic Docker installation not supported for $DISTRO"
             echo ""

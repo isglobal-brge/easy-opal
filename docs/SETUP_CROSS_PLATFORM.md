@@ -43,23 +43,23 @@ The `./setup` script is designed to automatically install and configure all depe
 
 | OS/Distribution | Support Level | Notes |
 |----------------|---------------|-------|
-| **Ubuntu** (18.04+) | ✅ **Full** | Uses deadsnakes PPA for Python |
-| **Debian** (9+) | ✅ **Full** | Uses deadsnakes PPA for Python |
-| **Fedora** (30+) | ✅ **Full** | Native packages via dnf |
-| **CentOS/RHEL** (7+) | ✅ **Full** | EPEL repository + alternatives |
-| **AlmaLinux** (8+) | ✅ **Full** | EPEL repository + alternatives |
-| **Rocky Linux** (8+) | ✅ **Full** | EPEL repository + alternatives |
-| **openSUSE** (15+) | ✅ **Full** | Native packages via zypper |
-| **SLES** (15+) | ✅ **Full** | Native packages via zypper |
+| **Ubuntu** (18.04+) | ✅ **Full** | Uses deadsnakes PPA for Python, Docker CE repo |
+| **Debian** (9+) | ✅ **Full** | Uses deadsnakes PPA for Python, Docker CE repo |
+| **Fedora** (30+) | ✅ **Full** | Native packages via dnf, Docker CE repo |
+| **CentOS/RHEL** (8+) | ✅ **Full** | EPEL repository + Docker CE (8+ only) |
+| **AlmaLinux** (8+) | ✅ **Full** | EPEL repository + Docker CE |
+| **Rocky Linux** (8+) | ✅ **Full** | EPEL repository + Docker CE |
+| **openSUSE** (15+) | ✅ **Full** | Native packages via zypper, Docker CE repo |
+| **SLES** (15+) | ✅ **Full** | Native packages via zypper, Docker CE repo |
 | **Arch Linux** | ✅ **Full** | Native packages via pacman |
 | **Manjaro** | ✅ **Full** | Native packages via pacman |
 | **Alpine Linux** | ✅ **Full** | Native packages via apk |
 | **Void Linux** | ✅ **Full** | Native packages via xbps |
-| **Gentoo** | ⚠️ **Manual** | Requires manual Python config |
+| **Gentoo** | ✅ **Full** | Portage packages (emerge) |
 | **NixOS** | ⚠️ **Manual** | Requires system configuration |
 | **Clear Linux** | ✅ **Full** | Native bundles via swupd |
-| **FreeBSD** | ✅ **Full** | Native packages via pkg |
-| **macOS** (10.14+) | ✅ **Full** | Homebrew required |
+| **FreeBSD** | ✅ **Full** | Native packages via pkg (Podman) |
+| **macOS** (10.14+) | ⚠️ **Manual** | Homebrew + Docker Desktop |
 | **Other Linux** | ⚠️ **Partial** | Source compilation fallback |
 
 ### Dependencies Installed
@@ -264,6 +264,38 @@ sudo apk add docker docker-compose
 ```bash
 # Native packages
 sudo xbps-install docker docker-compose
+```
+
+### Gentoo
+```bash
+# Portage packages
+sudo emerge app-containers/docker app-containers/docker-compose
+sudo gpasswd -a $(whoami) docker
+```
+
+### NixOS
+```bash
+# System configuration required
+# Add to /etc/nixos/configuration.nix:
+# virtualisation.docker.enable = true;
+# users.users.username.extraGroups = [ "docker" ];
+sudo nixos-rebuild switch
+```
+
+### Clear Linux
+```bash
+# Container bundle
+sudo swupd bundle-add containers-basic
+sudo systemctl enable docker
+sudo systemctl start docker
+```
+
+### FreeBSD
+```bash
+# Docker doesn't run natively - use Podman instead
+sudo pkg install podman
+# Use 'podman' commands instead of 'docker'
+# Optional: alias docker=podman
 ```
 
 ## Multi-Tier Fallback System
@@ -476,6 +508,61 @@ sudo systemctl enable docker
 sudo systemctl status docker
 ```
 
+#### 5. FreeBSD Docker Alternative
+**Symptom:**
+```
+Docker doesn't run natively on FreeBSD
+```
+
+**Solutions:**
+```bash
+# Use Podman (Docker-compatible)
+sudo pkg install podman
+
+# Create alias for Docker compatibility
+echo "alias docker=podman" >> ~/.bashrc
+source ~/.bashrc
+
+# Verify Podman installation
+podman --version
+```
+
+#### 6. NixOS Docker Configuration
+**Symptom:**
+```
+NixOS requires system configuration for Docker
+```
+
+**Solutions:**
+```bash
+# Add to /etc/nixos/configuration.nix:
+sudo nano /etc/nixos/configuration.nix
+
+# Add these lines:
+# virtualisation.docker.enable = true;
+# users.users.yourusername.extraGroups = [ "docker" ];
+
+# Rebuild system
+sudo nixos-rebuild switch
+
+# Log out and back in for group changes
+```
+
+#### 7. Gentoo Docker Compilation
+**Symptom:**
+```
+emerge takes a long time to compile Docker
+```
+
+**Solutions:**
+```bash
+# Use binary packages if available
+emerge --usepkg app-containers/docker
+
+# Or add FEATURES="parallel-fetch" to make.conf for faster downloads
+echo 'FEATURES="parallel-fetch"' >> /etc/portage/make.conf
+```
+
 #### 2. Python Upgrade Not Taking Effect
 **Symptom:**
 ```bash
@@ -594,16 +681,45 @@ When adding support for new distributions:
 ### Recent Improvements
 
 - ✅ **Enhanced Python version handling** with `--upgrade-python`
+- ✅ **Comprehensive Docker installation** with `--upgrade-docker`
+- ✅ **Universal container support** (Docker CE + Podman for FreeBSD)
 - ✅ **Multi-tier fallback system** for all installations
 - ✅ **Cross-platform alternatives management**
 - ✅ **Comprehensive error handling** with specific solutions
 - ✅ **System detection and debug information**
 - ✅ **Extended distribution support** (openSUSE, Arch, Alpine, Void, etc.)
 - ✅ **Additional package managers** (apk, pkg, emerge, xbps, nix, swupd)
-- ✅ **FreeBSD and BSD system support**
+- ✅ **FreeBSD and BSD system support** (with Podman)
 - ✅ **Container-optimized distributions** (Alpine Linux)
 - ✅ **Specialized distributions** (Gentoo, NixOS, Clear Linux)
+- ✅ **Official Docker repositories** for modern systems
+- ✅ **Native package support** for all major distributions
 - ✅ **Retry logic** for network-dependent operations
 - ✅ **Manual installation guidance** for each dependency
+
+## Complete System Coverage Matrix
+
+| System | Python | Git/curl | mkcert | **Docker/Containers** | Status |
+|--------|--------|----------|--------|-----------------------|---------|
+| **Ubuntu** | ✅ deadsnakes PPA | ✅ apt-get | ✅ binary + nss | ✅ **Docker CE** | 🟢 **Full** |
+| **Debian** | ✅ deadsnakes PPA | ✅ apt-get | ✅ binary + nss | ✅ **Docker CE** | 🟢 **Full** |
+| **Fedora** | ✅ dnf packages | ✅ dnf | ✅ dnf + binary | ✅ **Docker CE** | 🟢 **Full** |
+| **CentOS/RHEL 8+** | ✅ EPEL | ✅ dnf/yum | ✅ EPEL + binary | ✅ **Docker CE** | 🟢 **Full** |
+| **AlmaLinux** | ✅ EPEL | ✅ dnf | ✅ EPEL + binary | ✅ **Docker CE** | 🟢 **Full** |
+| **Rocky Linux** | ✅ EPEL | ✅ dnf | ✅ EPEL + binary | ✅ **Docker CE** | 🟢 **Full** |
+| **openSUSE/SLES** | ✅ zypper | ✅ zypper | ✅ binary + nss | ✅ **Docker CE** | 🟢 **Full** |
+| **Arch/Manjaro** | ✅ pacman | ✅ pacman | ✅ pacman + binary | ✅ **Docker** | 🟢 **Full** |
+| **Alpine Linux** | ✅ apk | ✅ apk | ✅ binary + nss | ✅ **Docker** | 🟢 **Full** |
+| **Void Linux** | ✅ xbps | ✅ xbps | ✅ binary + nss | ✅ **Docker** | 🟢 **Full** |
+| **Gentoo** | ⚠️ manual | ✅ emerge | ✅ emerge + binary | ✅ **emerge** | 🟡 **Mostly** |
+| **Clear Linux** | ✅ swupd bundles | ✅ swupd | ✅ binary + bundles | ✅ **swupd bundles** | 🟢 **Full** |
+| **FreeBSD** | ✅ pkg | ✅ pkg | ✅ binary + nss | ✅ **Podman** | 🟢 **Full** |
+| **NixOS** | ⚠️ system config | ✅ nix-env | ⚠️ system config | ⚠️ **system config** | 🟡 **Manual** |
+| **macOS** | ✅ Homebrew | ✅ Homebrew | ✅ Homebrew | ⚠️ **Docker Desktop** | 🟡 **Mostly** |
+
+### Coverage Summary:
+- 🟢 **Full Support**: 12/15 systems (80%)
+- 🟡 **Mostly/Manual**: 3/15 systems (20%)
+- 🔴 **Limited**: 0/15 systems (0%)
 
 The setup script is now enterprise-ready for deployment across diverse environments while maintaining ease of use for development setups. 

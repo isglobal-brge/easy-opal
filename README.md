@@ -82,7 +82,7 @@ The installation process is streamlined using Poetry for robust dependency and e
     
     The setup script automatically handles:
     - ✅ **System dependency detection** (Python 3.8+, Docker CE 17.06+, Git, curl)
-    - ✅ **Cross-platform installation** (Ubuntu, CentOS, Fedora, Arch, Alpine, FreeBSD, macOS, etc.)
+    - ✅ **Cross-platform installation** (Ubuntu, CentOS, Fedora, Arch, Alpine, Gentoo, FreeBSD, macOS, etc.)
     - ✅ **Python version upgrades** (fixes Poetry 2.x compatibility)
     - ✅ **Docker CE installation** (with Compose V2 support)
     - ✅ **Poetry installation** with virtual environment setup
