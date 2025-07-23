@@ -46,6 +46,12 @@ The `./setup` script is designed to automatically install and configure all depe
 | **SLES** (15+) | ✅ **Full** | Native packages via zypper |
 | **Arch Linux** | ✅ **Full** | Native packages via pacman |
 | **Manjaro** | ✅ **Full** | Native packages via pacman |
+| **Alpine Linux** | ✅ **Full** | Native packages via apk |
+| **Void Linux** | ✅ **Full** | Native packages via xbps |
+| **Gentoo** | ⚠️ **Manual** | Requires manual Python config |
+| **NixOS** | ⚠️ **Manual** | Requires system configuration |
+| **Clear Linux** | ✅ **Full** | Native bundles via swupd |
+| **FreeBSD** | ✅ **Full** | Native packages via pkg |
 | **macOS** (10.14+) | ✅ **Full** | Homebrew required |
 | **Other Linux** | ⚠️ **Partial** | Source compilation fallback |
 
@@ -132,6 +138,46 @@ sudo pacman -S python python-pip
 sudo pacman -S python311 python311-pip
 ```
 
+### Alpine Linux
+```bash
+# Native packages
+sudo apk update
+sudo apk add python3 python3-dev py3-pip
+```
+
+### Void Linux
+```bash
+# Native packages
+sudo xbps-install -y python3 python3-devel python3-pip
+```
+
+### FreeBSD
+```bash
+# Native packages
+sudo pkg install -y python311 py311-pip
+```
+
+### Gentoo
+```bash
+# Manual configuration required
+emerge -av =dev-lang/python-3.11*
+eselect python set python3.11
+```
+
+### NixOS
+```bash
+# System configuration required
+# Add to /etc/nixos/configuration.nix:
+# environment.systemPackages = with pkgs; [ python311 python311Packages.pip ];
+sudo nixos-rebuild switch
+```
+
+### Clear Linux
+```bash
+# Native bundles
+sudo swupd bundle-add python3-basic python-basic-dev
+```
+
 ### macOS
 ```bash
 # Via Homebrew
@@ -201,6 +247,12 @@ The script installs mkcert using multiple approaches:
 | CentOS/RHEL | EPEL package | nss-tools + binary |
 | openSUSE/SLES | mozilla-nss-tools + binary | GitHub binary |
 | Arch/Manjaro | pacman package | nss + binary |
+| Alpine Linux | nss-tools + binary | GitHub binary |
+| Void Linux | nss + binary | GitHub binary |
+| Gentoo | dev-libs/nss + binary | GitHub binary |
+| Clear Linux | network-basic + binary | GitHub binary |
+| FreeBSD | pkg nss + binary | GitHub binary |
+| NixOS | System config required | Manual installation |
 | macOS | Homebrew package | N/A |
 | Others | GitHub binary | Manual installation |
 
@@ -260,6 +312,12 @@ Common commands:
   • CentOS/RHEL: sudo yum install git
   • openSUSE: sudo zypper install git
   • Arch: sudo pacman -S git
+  • Alpine: sudo apk add git
+  • FreeBSD: sudo pkg install git
+  • Gentoo: sudo emerge dev-vcs/git
+  • Void: sudo xbps-install git
+  • NixOS: nix-env -iA nixpkgs.git
+  • Clear Linux: sudo swupd bundle-add git
 ```
 
 ## System Detection
@@ -411,7 +469,11 @@ When adding support for new distributions:
 - ✅ **Cross-platform alternatives management**
 - ✅ **Comprehensive error handling** with specific solutions
 - ✅ **System detection and debug information**
-- ✅ **Extended distribution support** (openSUSE, Arch, etc.)
+- ✅ **Extended distribution support** (openSUSE, Arch, Alpine, Void, etc.)
+- ✅ **Additional package managers** (apk, pkg, emerge, xbps, nix, swupd)
+- ✅ **FreeBSD and BSD system support**
+- ✅ **Container-optimized distributions** (Alpine Linux)
+- ✅ **Specialized distributions** (Gentoo, NixOS, Clear Linux)
 - ✅ **Retry logic** for network-dependent operations
 - ✅ **Manual installation guidance** for each dependency
 

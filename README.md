@@ -72,7 +72,7 @@ The installation process is streamlined using Poetry for robust dependency and e
     
     The setup script automatically handles:
     - ✅ **System dependency detection** (Python 3.8+, Docker, Git, curl)
-    - ✅ **Cross-platform installation** (Ubuntu, CentOS, Fedora, Arch, macOS, etc.)
+    - ✅ **Cross-platform installation** (Ubuntu, CentOS, Fedora, Arch, Alpine, FreeBSD, macOS, etc.)
     - ✅ **Python version upgrades** (fixes Poetry 2.x compatibility)
     - ✅ **Poetry installation** with virtual environment setup
     - ✅ **SSL certificates** via mkcert (skip with `--skip-mkcert`)

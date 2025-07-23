@@ -62,6 +62,18 @@ detect_system() {
         PKG_MANAGER="zypper"
     elif command -v pacman &> /dev/null; then
         PKG_MANAGER="pacman"
+    elif command -v apk &> /dev/null; then
+        PKG_MANAGER="apk"
+    elif command -v pkg &> /dev/null; then
+        PKG_MANAGER="pkg"
+    elif command -v emerge &> /dev/null; then
+        PKG_MANAGER="emerge"
+    elif command -v xbps-install &> /dev/null; then
+        PKG_MANAGER="xbps"
+    elif command -v nix-env &> /dev/null; then
+        PKG_MANAGER="nix"
+    elif command -v swupd &> /dev/null; then
+        PKG_MANAGER="swupd"
     elif command -v brew &> /dev/null; then
         PKG_MANAGER="brew"
     else
@@ -293,6 +305,61 @@ EOF
             fi
             ;;
             
+        alpine)
+            echo "Installing Python 3.11 on Alpine Linux..."
+            sudo apk update
+            sudo apk add python3 python3-dev py3-pip
+            echo "✅ Python installed successfully"
+            # Alpine usually has recent Python, but verify
+            if ! python3 -c "import sys; exit(0 if sys.version_info >= (3, 8) else 1)" 2>/dev/null; then
+                echo "⚠️  Alpine Python might be too old, trying source installation..."
+                install_python_from_source "3.11.7"
+            fi
+            ;;
+            
+        void)
+            echo "Installing Python 3.11 on Void Linux..."
+            sudo xbps-install -y python3 python3-devel python3-pip
+            echo "✅ Python installed successfully"
+            # Void usually has recent Python
+            if ! python3 -c "import sys; exit(0 if sys.version_info >= (3, 8) else 1)" 2>/dev/null; then
+                echo "⚠️  Void Python might be too old, trying source installation..."
+                install_python_from_source "3.11.7"
+            fi
+            ;;
+            
+        gentoo)
+            echo "Installing Python 3.11 on Gentoo..."
+            # Gentoo users typically manage Python versions themselves
+            echo "⚠️  Gentoo detected. You likely need to configure Python manually:"
+            echo "1. Check available Python versions: eselect python list"
+            echo "2. Install Python 3.11: emerge -av =dev-lang/python-3.11*"
+            echo "3. Set as default: eselect python set python3.11"
+            echo "4. Re-run this script after Python setup"
+            return 1
+            ;;
+            
+        nixos)
+            echo "Installing Python 3.11 on NixOS..."
+            echo "⚠️  NixOS detected. Please add Python 3.11+ to your system configuration:"
+            echo "1. Add to /etc/nixos/configuration.nix:"
+            echo "   environment.systemPackages = with pkgs; [ python311 python311Packages.pip ];"
+            echo "2. Run: sudo nixos-rebuild switch"
+            echo "3. Re-run this script after system rebuild"
+            return 1
+            ;;
+            
+        clear-linux-os)
+            echo "Installing Python 3.11 on Clear Linux..."
+            sudo swupd bundle-add python3-basic python-basic-dev
+            echo "✅ Python installed successfully"
+            # Clear Linux usually has recent Python
+            if ! python3 -c "import sys; exit(0 if sys.version_info >= (3, 8) else 1)" 2>/dev/null; then
+                echo "⚠️  Clear Linux Python might be too old, trying source installation..."  
+                install_python_from_source "3.11.7"
+            fi
+            ;;
+            
         *)
             echo "Unknown distribution: $DISTRO"
             echo "Attempting to install Python from source..."
@@ -333,6 +400,18 @@ install_python_from_source() {
     elif command -v yum &> /dev/null; then
         sudo yum groupinstall -y "Development Tools"
         sudo yum install -y zlib-devel bzip2-devel openssl-devel ncurses-devel sqlite-devel readline-devel tk-devel gdbm-devel db4-devel libpcap-devel xz-devel expat-devel
+    elif command -v zypper &> /dev/null; then
+        sudo zypper install -y gcc gcc-c++ make zlib-devel libbz2-devel libopenssl-devel libffi-devel sqlite3-devel ncurses-devel readline-devel wget
+    elif command -v pacman &> /dev/null; then
+        sudo pacman -S --noconfirm base-devel zlib bzip2 openssl libffi sqlite ncurses readline wget
+    elif command -v apk &> /dev/null; then
+        sudo apk add build-base zlib-dev bzip2-dev openssl-dev libffi-dev sqlite-dev ncurses-dev readline-dev wget
+    elif command -v xbps-install &> /dev/null; then
+        sudo xbps-install -y base-devel zlib-devel bzip2-devel openssl-devel libffi-devel sqlite-devel ncurses-devel readline-devel wget
+    elif command -v emerge &> /dev/null; then
+        sudo emerge --ask=n sys-devel/gcc sys-devel/make sys-libs/zlib app-arch/bzip2 dev-libs/openssl dev-libs/libffi dev-db/sqlite sys-libs/ncurses sys-libs/readline net-misc/wget
+    elif command -v swupd &> /dev/null; then
+        sudo swupd bundle-add c-basic devpkg-zlib devpkg-bzip2 devpkg-openssl devpkg-libffi devpkg-sqlite devpkg-ncurses devpkg-readline
     fi
     
     # Download and compile Python
@@ -439,6 +518,18 @@ if ! command -v git &> /dev/null; then
         sudo zypper install -y git
     elif command -v pacman &> /dev/null; then
         sudo pacman -S --noconfirm git
+    elif command -v apk &> /dev/null; then
+        sudo apk add git
+    elif command -v pkg &> /dev/null; then
+        sudo pkg install -y git
+    elif command -v emerge &> /dev/null; then
+        sudo emerge --ask=n dev-vcs/git
+    elif command -v xbps-install &> /dev/null; then
+        sudo xbps-install -y git
+    elif command -v nix-env &> /dev/null; then
+        nix-env -iA nixpkgs.git
+    elif command -v swupd &> /dev/null; then
+        sudo swupd bundle-add git
     else
         echo "Could not install git automatically. Please install it manually."
         echo "Common commands:"
@@ -447,6 +538,12 @@ if ! command -v git &> /dev/null; then
         echo "  • CentOS/RHEL: sudo yum install git"
         echo "  • openSUSE: sudo zypper install git"
         echo "  • Arch: sudo pacman -S git"
+        echo "  • Alpine: sudo apk add git"
+        echo "  • FreeBSD: sudo pkg install git"
+        echo "  • Gentoo: sudo emerge dev-vcs/git"
+        echo "  • Void: sudo xbps-install git"
+        echo "  • NixOS: nix-env -iA nixpkgs.git"
+        echo "  • Clear Linux: sudo swupd bundle-add git"
         exit 1
     fi
 fi
@@ -469,6 +566,18 @@ if ! command -v curl &> /dev/null; then
         sudo zypper install -y curl
     elif command -v pacman &> /dev/null; then
         sudo pacman -S --noconfirm curl
+    elif command -v apk &> /dev/null; then
+        sudo apk add curl
+    elif command -v pkg &> /dev/null; then
+        sudo pkg install -y curl
+    elif command -v emerge &> /dev/null; then
+        sudo emerge --ask=n net-misc/curl
+    elif command -v xbps-install &> /dev/null; then
+        sudo xbps-install -y curl
+    elif command -v nix-env &> /dev/null; then
+        nix-env -iA nixpkgs.curl
+    elif command -v swupd &> /dev/null; then
+        sudo swupd bundle-add curl
     else
         echo "Could not install curl automatically. Please install it manually."
         echo "Common commands:"
@@ -477,6 +586,12 @@ if ! command -v curl &> /dev/null; then
         echo "  • CentOS/RHEL: sudo yum install curl"
         echo "  • openSUSE: sudo zypper install curl"
         echo "  • Arch: sudo pacman -S curl"
+        echo "  • Alpine: sudo apk add curl"
+        echo "  • FreeBSD: sudo pkg install curl"
+        echo "  • Gentoo: sudo emerge net-misc/curl"
+        echo "  • Void: sudo xbps-install curl"
+        echo "  • NixOS: nix-env -iA nixpkgs.curl"
+        echo "  • Clear Linux: sudo swupd bundle-add curl"
         exit 1
     fi
 fi
@@ -576,6 +691,51 @@ install_mkcert() {
                         fi
                     else
                         echo "Failed to install dependencies with pacman"
+                        return 1
+                    fi
+                    ;;
+                alpine)
+                    echo "Installing mkcert on Alpine Linux..."
+                    if sudo apk update && sudo apk add nss-tools; then
+                        install_mkcert_binary
+                    else
+                        echo "Failed to install dependencies with apk"
+                        return 1
+                    fi
+                    ;;
+                void)
+                    echo "Installing mkcert on Void Linux..."
+                    if sudo xbps-install -y nss; then
+                        install_mkcert_binary
+                    else
+                        echo "Failed to install dependencies with xbps"
+                        return 1
+                    fi
+                    ;;
+                gentoo)
+                    echo "Installing mkcert on Gentoo..."
+                    if sudo emerge --ask=n dev-libs/nss; then
+                        install_mkcert_binary
+                    else
+                        echo "Failed to install dependencies with emerge"
+                        return 1
+                    fi
+                    ;;
+                nixos)
+                    echo "Installing mkcert on NixOS..."
+                    echo "⚠️  Please add nss and mkcert to your system configuration:"
+                    echo "1. Add to /etc/nixos/configuration.nix:"
+                    echo "   environment.systemPackages = with pkgs; [ nss mkcert ];"
+                    echo "2. Run: sudo nixos-rebuild switch"
+                    echo "3. Re-run this script with --skip-mkcert if you prefer manual certs"
+                    return 1
+                    ;;
+                clear-linux-os)
+                    echo "Installing mkcert on Clear Linux..."
+                    if sudo swupd bundle-add network-basic; then
+                        install_mkcert_binary
+                    else
+                        echo "Failed to install dependencies with swupd"
                         return 1
                     fi
                     ;;
