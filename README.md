@@ -172,6 +172,57 @@ Performs a factory reset of the environment. Running it without flags starts an 
 
 ---
 
+### `diagnose`
+
+Run comprehensive health diagnostics on your easy-opal installation. This command performs thorough testing of infrastructure, network connectivity, external access, security configurations, and service endpoints.
+
+-   `./easy-opal diagnose`: Full diagnostic report with detailed results and troubleshooting guidance.
+-   `./easy-opal diagnose --quiet`: Summary-only output, perfect for CI/CD systems and automated monitoring.
+-   `./easy-opal diagnose --verbose`: Detailed output with additional debugging information.
+-   `./easy-opal diagnose --no-auto-start`: Prevent interactive prompts to start the stack (for automated scenarios).
+
+**What it tests:**
+
+-   **🐳 Infrastructure**: Docker Compose configuration and container status
+-   **🔗 Network Connectivity**: Inter-container communication (Opal↔MongoDB, Nginx↔Opal, Rock connections) with 2-minute retry logic for startup delays
+-   **🌐 External Access**: Port accessibility from host system with 2-minute retry logic for service startup
+-   **🔒 Security & Certificates**: SSL certificate validation with 2-minute retry logic for SSL service startup
+-   **💾 Service Health**: HTTP/HTTPS endpoint responses with 2-minute retry logic for web service initialization
+
+**Output formats:**
+
+```bash
+# Full diagnostic with troubleshooting guidance
+./easy-opal diagnose
+
+# Quick health check (perfect for monitoring scripts)
+./easy-opal diagnose --quiet
+
+# When everything is healthy:
+🎉 SYSTEM HEALTHY
+   ✅ All 6 tests passed - your easy-opal installation is working perfectly!
+
+# When issues are detected:
+🚨 CRITICAL ISSUES DETECTED
+   ❌ 2 failed, ⚠️ 1 warnings, ✅ 3 passed
+   Run './easy-opal diagnose' for detailed troubleshooting info
+```
+
+**Smart Stack Detection**: If the stack is not running, the diagnostic tool will:
+-   Clearly indicate the stack is down instead of showing misleading test failures
+-   Offer to automatically start the stack and then run diagnostics (interactive mode)
+-   Provide clear next steps for manual stack startup (quiet/automated modes)
+
+**Exit codes**: Returns the number of failed tests (0 = success), making it perfect for automated monitoring and CI/CD pipelines.
+
+**Use cases:**
+-   **Troubleshooting**: Quickly identify connectivity or configuration issues
+-   **Health Monitoring**: Regular system health checks in production
+-   **Post-Setup Validation**: Verify everything works after initial setup or changes
+-   **CI/CD Integration**: Automated testing in deployment pipelines
+
+---
+
 ### `config`
 
 Manage the stack's configuration and snapshots.

@@ -1,5 +1,10 @@
 # Troubleshooting Guide
 
+> 🏥 **NEW: Use the built-in diagnostic system for automated troubleshooting!**
+> 
+> Run `./easy-opal diagnose` for comprehensive health checks with automated troubleshooting guidance.
+> See the [**Diagnostics Guide**](./DIAGNOSTICS.md) for complete documentation.
+
 > 💡 **Many common issues are now handled automatically by the enhanced setup script.** 
 > 
 > For comprehensive cross-platform support, Python version issues, and installation options, see: [**Cross-Platform Setup Guide**](./SETUP_CROSS_PLATFORM.md)
@@ -8,6 +13,7 @@
 > - Python/Poetry issues: `./setup --upgrade-python`
 > - Docker issues: `./setup --upgrade-docker`
 > - SSL certificate issues: `./setup --skip-mkcert`
+> - **System health check**: `./easy-opal diagnose`
 
 ## Docker Detection Issues
 
