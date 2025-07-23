@@ -1,6 +1,29 @@
 #!/bin/bash
 # A simple script to set up the environment and install dependencies.
 
+# Parse command line arguments
+SKIP_MKCERT=false
+for arg in "$@"; do
+    case $arg in
+        --skip-mkcert)
+            SKIP_MKCERT=true
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: $0 [OPTIONS]"
+            echo "Options:"
+            echo "  --skip-mkcert    Skip mkcert installation (for manual SSL cert management)"
+            echo "  --help, -h       Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $arg"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
 # --- Dependency Checks ---
 
 echo "--- Checking Prerequisites ---"
@@ -32,6 +55,8 @@ if ! command -v git &> /dev/null; then
         sudo apt-get update && sudo apt-get install -y git
     elif command -v dnf &> /dev/null; then
         sudo dnf install -y git
+    elif command -v yum &> /dev/null; then
+        sudo yum install -y git
     else
         echo "Could not install git automatically. Please install it manually."
         exit 1
@@ -50,6 +75,8 @@ if ! command -v curl &> /dev/null; then
         sudo apt-get update && sudo apt-get install -y curl
     elif command -v dnf &> /dev/null; then
         sudo dnf install -y curl
+    elif command -v yum &> /dev/null; then
+        sudo yum install -y curl
     else
         echo "Could not install curl automatically. Please install it manually."
         exit 1
@@ -58,64 +85,232 @@ fi
 echo "✅ curl found."
 
 # Check for Homebrew on macOS (for mkcert)
-if [[ "$(uname -s)" == "Darwin" ]] && ! command -v brew &> /dev/null; then
+if [[ "$(uname -s)" == "Darwin" ]] && ! command -v brew &> /dev/null && [[ "$SKIP_MKCERT" == false ]]; then
     echo "❌ [ERROR] 'brew' (Homebrew) is not installed."
     echo "Please install it from https://brew.sh/ and try again."
+    echo "Or use --skip-mkcert to skip certificate tools installation."
     exit 1
 fi
 echo "--------------------------"
 echo ""
 
-
-# Function to install mkcert
+# Function to install mkcert with multiple methods
 install_mkcert() {
     echo "Checking for mkcert..."
     OS="$(uname -s)"
 
+    # If mkcert is already installed, just ensure CA is trusted
+    if command -v mkcert &> /dev/null; then
+        echo "✅ mkcert is already installed."
+        echo "Ensuring local CA is trusted..."
+        mkcert -install
+        return 0
+    fi
+
     case "${OS}" in
         Linux*)
             echo "Detected Linux OS."
-            if ! command -v mkcert &> /dev/null; then
-                if command -v apt-get &> /dev/null; then
-                    echo "mkcert not found. Attempting to install with apt-get..."
-                    sudo apt-get update && sudo apt-get install -y libnss3-tools mkcert
-                elif command -v dnf &> /dev/null; then
-                    echo "mkcert not found. Attempting to install with dnf..."
-                    sudo dnf install -y nss-tools mkcert
-                else
-                    echo "Could not determine package manager. Please install 'mkcert' manually."
-                    exit 1
-                fi
+            
+            # Detect Linux distribution
+            if [ -f /etc/os-release ]; then
+                . /etc/os-release
+                DISTRO=$ID
+            else
+                DISTRO="unknown"
             fi
+            
+            echo "Distribution: $DISTRO"
+            
+            # Try different installation methods based on distribution
+            case "$DISTRO" in
+                ubuntu|debian)
+                    echo "Installing mkcert using apt-get..."
+                    if sudo apt-get update && sudo apt-get install -y libnss3-tools; then
+                        install_mkcert_binary
+                    else
+                        echo "Failed to install dependencies with apt-get"
+                        return 1
+                    fi
+                    ;;
+                fedora)
+                    echo "Installing mkcert using dnf..."
+                    if command -v dnf &> /dev/null && sudo dnf install -y nss-tools; then
+                        if ! sudo dnf install -y mkcert 2>/dev/null; then
+                            echo "mkcert not available in dnf, trying binary installation..."
+                            install_mkcert_binary
+                        fi
+                    else
+                        echo "Failed to install dependencies with dnf"
+                        return 1
+                    fi
+                    ;;
+                centos|rhel|rocky|almalinux)
+                    echo "Installing mkcert on RHEL/CentOS-based system..."
+                    
+                    # Install NSS tools first
+                    if command -v dnf &> /dev/null; then
+                        sudo dnf install -y nss-tools
+                    elif command -v yum &> /dev/null; then
+                        sudo yum install -y nss-tools
+                    fi
+                    
+                    # Try EPEL repository first
+                    if ! install_mkcert_epel; then
+                        echo "EPEL installation failed, trying binary installation..."
+                        install_mkcert_binary
+                    fi
+                    ;;
+                opensuse*|sles)
+                    echo "Installing mkcert on openSUSE/SLES..."
+                    if sudo zypper install -y mozilla-nss-tools; then
+                        install_mkcert_binary
+                    else
+                        echo "Failed to install dependencies with zypper"
+                        return 1
+                    fi
+                    ;;
+                arch|manjaro)
+                    echo "Installing mkcert using pacman..."
+                    if sudo pacman -S --noconfirm nss; then
+                        if ! sudo pacman -S --noconfirm mkcert 2>/dev/null; then
+                            echo "mkcert not available in pacman, trying AUR or binary..."
+                            install_mkcert_binary
+                        fi
+                    else
+                        echo "Failed to install dependencies with pacman"
+                        return 1
+                    fi
+                    ;;
+                *)
+                    echo "Unknown or unsupported Linux distribution: $DISTRO"
+                    echo "Attempting generic binary installation..."
+                    install_mkcert_binary
+                    ;;
+            esac
             ;;
         Darwin*)
             echo "Detected macOS."
-            if ! command -v mkcert &> /dev/null; then
-                echo "mkcert not found. Installing with Homebrew..."
-                brew install mkcert
+            echo "Installing mkcert with Homebrew..."
+            if ! brew install mkcert; then
+                echo "Failed to install mkcert with Homebrew"
+                return 1
             fi
             ;;
         *)
-            echo "Unsupported OS: ${OS}. Please install 'mkcert' manually."
-            exit 1
+            echo "Unsupported OS: ${OS}"
+            echo "Attempting generic binary installation..."
+            install_mkcert_binary
             ;;
     esac
     
-    # After installing mkcert, ensure its local CA is trusted.
+    # Verify installation and trust CA
     if command -v mkcert &> /dev/null; then
-        echo "✅ mkcert is installed. Ensuring local CA is trusted..."
-        # This command might prompt for the user's password.
+        echo "✅ mkcert installed successfully. Ensuring local CA is trusted..."
         mkcert -install
+        return 0
     else
-        echo "❌ [ERROR] mkcert installation failed. Please try installing it manually."
-        exit 1
+        echo "❌ [ERROR] mkcert installation failed."
+        return 1
+    fi
+}
+
+# Function to install mkcert from EPEL repository
+install_mkcert_epel() {
+    echo "Attempting to install mkcert from EPEL repository..."
+    
+    # Enable EPEL repository
+    if command -v dnf &> /dev/null; then
+        if ! sudo dnf install -y epel-release 2>/dev/null; then
+            echo "Failed to install EPEL repository"
+            return 1
+        fi
+        if sudo dnf install -y mkcert 2>/dev/null; then
+            echo "✅ mkcert installed from EPEL"
+            return 0
+        fi
+    elif command -v yum &> /dev/null; then
+        if ! sudo yum install -y epel-release 2>/dev/null; then
+            echo "Failed to install EPEL repository"
+            return 1
+        fi
+        if sudo yum install -y mkcert 2>/dev/null; then
+            echo "✅ mkcert installed from EPEL"
+            return 0
+        fi
+    fi
+    
+    return 1
+}
+
+# Function to install mkcert binary directly from GitHub releases
+install_mkcert_binary() {
+    echo "Installing mkcert from GitHub releases..."
+    
+    # Detect architecture
+    ARCH="$(uname -m)"
+    case "$ARCH" in
+        x86_64) ARCH="amd64" ;;
+        aarch64|arm64) ARCH="arm64" ;;
+        armv7l) ARCH="arm" ;;
+        i386|i686) ARCH="386" ;;
+        *) 
+            echo "Unsupported architecture: $ARCH"
+            return 1
+            ;;
+    esac
+    
+    # Detect OS for binary naming
+    OS_LOWER="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    
+    # Get latest release version
+    echo "Fetching latest mkcert release information..."
+    LATEST_VERSION=$(curl -s https://api.github.com/repos/FiloSottile/mkcert/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    
+    if [ -z "$LATEST_VERSION" ]; then
+        echo "Failed to get latest version information"
+        return 1
+    fi
+    
+    echo "Latest version: $LATEST_VERSION"
+    
+    # Construct download URL
+    BINARY_NAME="mkcert-${LATEST_VERSION}-${OS_LOWER}-${ARCH}"
+    DOWNLOAD_URL="https://github.com/FiloSottile/mkcert/releases/download/${LATEST_VERSION}/${BINARY_NAME}"
+    
+    echo "Downloading: $DOWNLOAD_URL"
+    
+    # Download and install
+    if curl -L -o /tmp/mkcert "$DOWNLOAD_URL"; then
+        sudo chmod +x /tmp/mkcert
+        sudo mv /tmp/mkcert /usr/local/bin/mkcert
+        echo "✅ mkcert binary installed to /usr/local/bin/mkcert"
+        return 0
+    else
+        echo "Failed to download mkcert binary"
+        return 1
     fi
 }
 
 # --- Main script ---
 
-# 1. Install mkcert
-install_mkcert
+# 1. Install mkcert (unless skipped)
+if [[ "$SKIP_MKCERT" == true ]]; then
+    echo "⏭️  Skipping mkcert installation as requested."
+    echo "   Note: You'll need to provide your own SSL certificates or use reverse-proxy mode."
+else
+    if ! install_mkcert; then
+        echo ""
+        echo "❌ [ERROR] Failed to install mkcert automatically."
+        echo ""
+        echo "📋 Manual installation options:"
+        echo "1. Download from: https://github.com/FiloSottile/mkcert/releases"
+        echo "2. Use package manager specific to your distribution"
+        echo "3. Build from source: https://github.com/FiloSottile/mkcert"
+        echo "4. Re-run this script with --skip-mkcert and provide your own certificates"
+        echo ""
+        exit 1
+    fi
+fi
 
 # 2. Install Poetry and dependencies
 echo -e "\n--- Setting up Python Environment with Poetry ---"
@@ -142,6 +337,17 @@ echo "Installing project dependencies with Poetry... (This may take a moment)"
 chmod +x easy-opal
 
 echo -e "\n✅ Setup complete! The environment is ready."
+
+if [[ "$SKIP_MKCERT" == true ]]; then
+    echo ""
+    echo "⚠️  IMPORTANT: mkcert was skipped during setup."
+    echo "   When running './easy-opal setup', choose one of these SSL strategies:"
+    echo "   • 'manual' - Provide your own certificate files"
+    echo "   • 'letsencrypt' - Use Let's Encrypt (requires public domain)"
+    echo "   • 'reverse-proxy' - Use HTTP with external reverse proxy"
+    echo ""
+fi
+
 echo "You can now run the tool using the './easy-opal' wrapper script."
 echo "For example, to start the setup wizard, run:"
 
