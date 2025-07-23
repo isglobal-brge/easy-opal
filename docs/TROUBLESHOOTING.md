@@ -1,5 +1,13 @@
 # Troubleshooting Guide
 
+> 💡 **Many common issues are now handled automatically by the enhanced setup script.** 
+> 
+> For comprehensive cross-platform support, Python version issues, and installation options, see: [**Cross-Platform Setup Guide**](./SETUP_CROSS_PLATFORM.md)
+> 
+> **Quick fixes:**
+> - Python/Poetry issues: `./setup --upgrade-python`
+> - SSL certificate issues: `./setup --skip-mkcert`
+
 ## Docker Detection Issues
 
 ### Problem: "Docker is not installed or not running" despite being installed

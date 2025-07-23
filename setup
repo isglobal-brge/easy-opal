@@ -34,9 +34,49 @@ for arg in "$@"; do
     esac
 done
 
+# Function to detect system information
+detect_system() {
+    # Detect OS
+    OS="$(uname -s)"
+    
+    # Detect Linux distribution
+    if [ "$OS" = "Linux" ] && [ -f /etc/os-release ]; then
+        . /etc/os-release
+        DISTRO="$ID"
+        DISTRO_VERSION="$VERSION_ID"
+        DISTRO_NAME="$PRETTY_NAME"
+    else
+        DISTRO="unknown"
+        DISTRO_VERSION="unknown"
+        DISTRO_NAME="$(uname -s) $(uname -r)"
+    fi
+    
+    # Detect package manager
+    if command -v apt-get &> /dev/null; then
+        PKG_MANAGER="apt-get"
+    elif command -v dnf &> /dev/null; then
+        PKG_MANAGER="dnf"
+    elif command -v yum &> /dev/null; then
+        PKG_MANAGER="yum"
+    elif command -v zypper &> /dev/null; then
+        PKG_MANAGER="zypper"
+    elif command -v pacman &> /dev/null; then
+        PKG_MANAGER="pacman"
+    elif command -v brew &> /dev/null; then
+        PKG_MANAGER="brew"
+    else
+        PKG_MANAGER="unknown"
+    fi
+    
+    echo "🖥️  System: $DISTRO_NAME"
+    echo "📦 Package manager: $PKG_MANAGER"
+}
+
 # --- Dependency Checks ---
 
 echo "--- Checking Prerequisites ---"
+detect_system
+echo ""
 
 # Check for Python 3 and version
 check_python_version() {
@@ -395,8 +435,18 @@ if ! command -v git &> /dev/null; then
         sudo dnf install -y git
     elif command -v yum &> /dev/null; then
         sudo yum install -y git
+    elif command -v zypper &> /dev/null; then
+        sudo zypper install -y git
+    elif command -v pacman &> /dev/null; then
+        sudo pacman -S --noconfirm git
     else
         echo "Could not install git automatically. Please install it manually."
+        echo "Common commands:"
+        echo "  • Ubuntu/Debian: sudo apt install git"
+        echo "  • Fedora: sudo dnf install git"
+        echo "  • CentOS/RHEL: sudo yum install git"
+        echo "  • openSUSE: sudo zypper install git"
+        echo "  • Arch: sudo pacman -S git"
         exit 1
     fi
 fi
@@ -415,8 +465,18 @@ if ! command -v curl &> /dev/null; then
         sudo dnf install -y curl
     elif command -v yum &> /dev/null; then
         sudo yum install -y curl
+    elif command -v zypper &> /dev/null; then
+        sudo zypper install -y curl
+    elif command -v pacman &> /dev/null; then
+        sudo pacman -S --noconfirm curl
     else
         echo "Could not install curl automatically. Please install it manually."
+        echo "Common commands:"
+        echo "  • Ubuntu/Debian: sudo apt install curl"
+        echo "  • Fedora: sudo dnf install curl" 
+        echo "  • CentOS/RHEL: sudo yum install curl"
+        echo "  • openSUSE: sudo zypper install curl"
+        echo "  • Arch: sudo pacman -S curl"
         exit 1
     fi
 fi

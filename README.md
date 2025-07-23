@@ -10,7 +10,9 @@ Before you begin, ensure you have the following installed on your system:
 - **Git**: Required for the `update` command.
 - **mkcert**: Required for creating locally-trusted SSL certificates for development.
 
-The setup script will check for these and guide you if they are missing.
+The setup script will automatically install and configure these dependencies across all major platforms.
+
+> 📖 **For detailed platform support, troubleshooting, and advanced options, see:** [**Cross-Platform Setup Guide**](./docs/SETUP_CROSS_PLATFORM.md)
 
 ## Recommended Setup
 
@@ -58,18 +60,28 @@ The installation process is streamlined using Poetry for robust dependency and e
     ```
 
 2.  **Run the main setup script**:
-    Make the script executable and run it.
     ```bash
     chmod +x setup
     ./setup
     ```
-    This script will handle everything:
-    - Check for system-level dependencies like Docker and Git.
-    - Install **Poetry** (the Python package manager) if it's not present.
-    - Use Poetry to automatically create a virtual environment and install all Python dependencies.
-    - Install `mkcert` and set up its local Certificate Authority (CA).
     
-    > **Note:** After the setup script finishes, you may need to **open a new terminal** or reload your shell's configuration (e.g., `source ~/.zshrc`) for the `poetry` command to become available.
+    **For systems with older Python versions (CentOS/RHEL/AlmaLinux):**
+    ```bash
+    ./setup --upgrade-python
+    ```
+    
+    The setup script automatically handles:
+    - ✅ **System dependency detection** (Python 3.8+, Docker, Git, curl)
+    - ✅ **Cross-platform installation** (Ubuntu, CentOS, Fedora, Arch, macOS, etc.)
+    - ✅ **Python version upgrades** (fixes Poetry 2.x compatibility)
+    - ✅ **Poetry installation** with virtual environment setup
+    - ✅ **SSL certificates** via mkcert (skip with `--skip-mkcert`)
+    - ✅ **Multi-tier fallback system** for maximum compatibility
+    
+    > 📋 **Setup Options:**
+    > - `./setup` - Standard installation
+    > - `./setup --upgrade-python` - Install Python 3.8+ if needed (fixes Poetry issues)
+    > - `./setup --skip-mkcert` - Skip certificate tools (for reverse proxy setups)
 
 ## Usage
 
