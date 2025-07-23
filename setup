@@ -46,8 +46,12 @@ check_python_version() {
         return 1
     fi
 
+    # Debug: show which python3 we're using
+    python3_path=$(which python3 2>/dev/null || echo "unknown")
+    echo "🔍 Using python3 from: $python3_path"
+    
     # Get Python version
-    python_version=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+    python_version=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "unknown")
     echo "🐍 Python version: $python_version"
     
     # Check if version meets Poetry 2.x requirements (Python 3.8+)
@@ -87,24 +91,28 @@ install_newer_python() {
     fi
     
     case "$DISTRO" in
-        ubuntu|debian)
-            echo "Installing Python 3.11 via deadsnakes PPA..."
-            sudo apt-get update
-            sudo apt-get install -y software-properties-common
-            sudo add-apt-repository ppa:deadsnakes/ppa -y
-            sudo apt-get update
-            sudo apt-get install -y python3.11 python3.11-venv python3.11-pip python3.11-dev
-            
-            # Create symlink if python3 points to old version
-            if ! python3.11 --version &> /dev/null; then
-                echo "❌ Failed to install Python 3.11"
-                return 1
-            fi
-            
-            echo "✅ Python 3.11 installed successfully"
-            echo "Creating symlink to use python3.11 as default python3..."
-            sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
-            ;;
+                 ubuntu|debian)
+             echo "Installing Python 3.11 via deadsnakes PPA..."
+             sudo apt-get update
+             sudo apt-get install -y software-properties-common
+             sudo add-apt-repository ppa:deadsnakes/ppa -y
+             sudo apt-get update
+             sudo apt-get install -y python3.11 python3.11-venv python3.11-pip python3.11-dev
+             
+             # Verify installation
+             if ! python3.11 --version &> /dev/null; then
+                 echo "❌ Failed to install Python 3.11"
+                 return 1
+             fi
+             
+             echo "✅ Python 3.11 installed successfully"
+             echo "Creating symlink to use python3.11 as default python3..."
+             sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 100
+             sudo update-alternatives --install /usr/bin/pip3 pip3 /usr/bin/pip3.11 100
+             # Force the new version to be active
+             sudo update-alternatives --set python3 /usr/bin/python3.11
+             sudo update-alternatives --set pip3 /usr/bin/pip3.11
+             ;;
             
         fedora)
             echo "Installing Python 3.11 via dnf..."
@@ -117,38 +125,72 @@ install_newer_python() {
             
             echo "✅ Python 3.11 installed successfully"
             echo "Creating symlink to use python3.11 as default python3..."
-            sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+            sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 100
+            sudo update-alternatives --install /usr/bin/pip3 pip3 /usr/bin/pip3.11 100
+            # Force the new version to be active
+            sudo update-alternatives --set python3 /usr/bin/python3.11
+            sudo update-alternatives --set pip3 /usr/bin/pip3.11
             ;;
             
-        centos|rhel|rocky|almalinux)
-            echo "Installing Python 3.11 on RHEL/CentOS-based system..."
-            
-            # Try different methods based on version
-            if command -v dnf &> /dev/null; then
-                # Try EPEL and PowerTools first
-                sudo dnf install -y epel-release
-                sudo dnf config-manager --set-enabled powertools 2>/dev/null || sudo dnf config-manager --set-enabled PowerTools 2>/dev/null || true
-                
-                if sudo dnf install -y python3.11 python3.11-pip python3.11-devel 2>/dev/null; then
-                    echo "✅ Python 3.11 installed via dnf"
-                else
-                    echo "Trying alternative installation method..."
-                    install_python_from_source "3.11.7"
-                fi
-            elif command -v yum &> /dev/null; then
-                # For older CentOS versions, try Software Collections or compile from source
-                if yum list available | grep -q python3; then
-                    sudo yum install -y centos-release-scl
-                    sudo yum install -y rh-python38 rh-python38-python-pip rh-python38-python-devel
-                    echo "✅ Python 3.8 installed via Software Collections"
-                    echo "To use: scl enable rh-python38 bash"
-                    echo "Or add to your .bashrc: source /opt/rh/rh-python38/enable"
-                else
-                    echo "Installing Python from source..."
-                    install_python_from_source "3.11.7"
-                fi
-            fi
-            ;;
+                 centos|rhel|rocky|almalinux)
+             echo "Installing Python 3.11 on RHEL/CentOS-based system..."
+             
+             # Try different methods based on version
+             if command -v dnf &> /dev/null; then
+                 # Try EPEL and PowerTools first
+                 sudo dnf install -y epel-release
+                 sudo dnf config-manager --set-enabled powertools 2>/dev/null || sudo dnf config-manager --set-enabled PowerTools 2>/dev/null || true
+                 
+                 if sudo dnf install -y python3.11 python3.11-pip python3.11-devel 2>/dev/null; then
+                     echo "✅ Python 3.11 installed via dnf"
+                     # Create proper symlinks to override system python3
+                     sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 100
+                     sudo update-alternatives --install /usr/bin/pip3 pip3 /usr/bin/pip3.11 100
+                     # Force the new version to be active
+                     sudo update-alternatives --set python3 /usr/bin/python3.11
+                     sudo update-alternatives --set pip3 /usr/bin/pip3.11
+                 else
+                     echo "Trying alternative installation method..."
+                     install_python_from_source "3.11.7"
+                 fi
+             elif command -v yum &> /dev/null; then
+                 # For older CentOS versions, first try to install Python 3.11 from EPEL
+                 sudo yum install -y epel-release
+                 if sudo yum install -y python3.11 python3.11-pip python3.11-devel 2>/dev/null; then
+                     echo "✅ Python 3.11 installed via yum"
+                     # Create proper symlinks to override system python3
+                     sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 100
+                     sudo update-alternatives --install /usr/bin/pip3 pip3 /usr/bin/pip3.11 100
+                     # Force the new version to be active
+                     sudo update-alternatives --set python3 /usr/bin/python3.11
+                     sudo update-alternatives --set pip3 /usr/bin/pip3.11
+                 else
+                     # Fallback to Software Collections or source
+                     if yum list available | grep -q rh-python38; then
+                         sudo yum install -y centos-release-scl
+                         sudo yum install -y rh-python38 rh-python38-python-pip rh-python38-python-devel
+                         echo "✅ Python 3.8 installed via Software Collections"
+                         
+                         # Create wrapper scripts that enable SCL
+                         sudo tee /usr/local/bin/python3 > /dev/null << 'EOF'
+#!/bin/bash
+source /opt/rh/rh-python38/enable
+exec python3 "$@"
+EOF
+                         sudo tee /usr/local/bin/pip3 > /dev/null << 'EOF'
+#!/bin/bash
+source /opt/rh/rh-python38/enable
+exec pip3 "$@"
+EOF
+                         sudo chmod +x /usr/local/bin/python3 /usr/local/bin/pip3
+                         export PATH="/usr/local/bin:$PATH"
+                     else
+                         echo "Installing Python from source..."
+                         install_python_from_source "3.11.7"
+                     fi
+                 fi
+             fi
+             ;;
             
         opensuse*|sles)
             echo "Installing Python 3.11 via zypper..."
@@ -174,6 +216,23 @@ install_newer_python() {
             install_python_from_source "3.11.7"
             ;;
     esac
+    
+    # Verify that python3 now points to the new version
+    echo "🔍 Verifying Python 3 installation..."
+    hash -r  # Clear command hash table
+    export PATH="/usr/local/bin:$PATH"  # Ensure /usr/local/bin is prioritized
+    
+    sleep 1  # Give the system a moment to update
+    
+    new_python_version=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "unknown")
+    if python3 -c "import sys; exit(0 if sys.version_info >= (3, 8) else 1)" 2>/dev/null; then
+        echo "✅ Verification successful: python3 now points to version $new_python_version"
+        return 0
+    else
+        echo "⚠️  Warning: python3 still points to version $new_python_version (< 3.8)"
+        echo "This may require a shell restart or manual PATH update."
+        return 1
+    fi
 }
 
 # Function to install Python from source (fallback method)
@@ -203,12 +262,21 @@ install_python_from_source() {
     make -j $(nproc)
     sudo make altinstall
     
-    # Create symlinks
+    # Create symlinks with higher preference than system python
     sudo ln -sf /usr/local/bin/python3.11 /usr/local/bin/python3
     sudo ln -sf /usr/local/bin/pip3.11 /usr/local/bin/pip3
     
+    # Also try to override system python using update-alternatives if available
+    if command -v update-alternatives &> /dev/null; then
+        sudo update-alternatives --install /usr/bin/python3 python3 /usr/local/bin/python3.11 200
+        sudo update-alternatives --install /usr/bin/pip3 pip3 /usr/local/bin/pip3.11 200
+        sudo update-alternatives --set python3 /usr/local/bin/python3.11
+        sudo update-alternatives --set pip3 /usr/local/bin/pip3.11
+    fi
+    
     # Update PATH
     echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.bashrc
+    export PATH="/usr/local/bin:$PATH"
     
     # Clean up
     cd /
@@ -232,12 +300,28 @@ elif [ $python_check_result -eq 2 ]; then
         if install_newer_python; then
             echo "✅ Python upgrade completed"
             echo "🔄 Re-checking Python version..."
-            check_python_version || {
+            
+            # Refresh command hash and PATH
+            hash -r
+            export PATH="/usr/local/bin:$PATH"
+            
+            # Re-run the Python version check
+            if check_python_version; then
+                echo "✅ Python upgrade verification successful"
+            else
                 echo "❌ Python upgrade verification failed"
-                echo "You may need to restart your shell or update your PATH"
-                echo "Try: source ~/.bashrc or open a new terminal"
+                echo ""
+                echo "The newer Python was installed but python3 still points to the old version."
+                echo "This can happen due to shell caching or PATH issues."
+                echo ""
+                echo "📋 Manual steps to fix:"
+                echo "1. Open a new terminal/shell session"
+                echo "2. Run: source ~/.bashrc"
+                echo "3. Check: python3 --version"
+                echo "4. Re-run: ./setup"
+                echo ""
                 exit 1
-            }
+            fi
         else
             echo "❌ Failed to upgrade Python"
             exit 1
