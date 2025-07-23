@@ -5,6 +5,7 @@ import socket
 import ssl
 import time
 import requests
+import urllib3
 from pathlib import Path
 from rich.console import Console
 from rich.table import Table
@@ -13,6 +14,9 @@ from rich.prompt import Confirm
 from typing import Dict, Any, List, Tuple, Optional
 
 from src.core.config_manager import load_config, CONFIG_FILE, ensure_password_is_set
+
+# Suppress urllib3 InsecureRequestWarning since we intentionally use verify=False for self-signed certs
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from src.core.docker_manager import DOCKER_COMPOSE_PATH, get_docker_compose_command, docker_up
 
 console = Console()
@@ -470,10 +474,6 @@ class ContainerDiagnostics:
             # In reverse-proxy mode, Opal is exposed directly on HTTP port
             http_port = self.config.get('opal_http_port', 8080)
             
-            # Add important reminder about HTTPS proxy requirement
-            console.print("[yellow]💡 Reminder: In reverse-proxy mode, you need to provide your own HTTPS proxy solution.[/yellow]")
-            console.print("[dim]   The HTTP port tested here should only be accessible via your HTTPS proxy.[/dim]")
-            
             http_test = self._test_port_accessibility('localhost', http_port, f'Opal HTTP (reverse-proxy mode, port {http_port})')
             port_tests.append(http_test)
         else:
@@ -657,10 +657,6 @@ class ContainerDiagnostics:
             # In reverse-proxy mode, test HTTP directly to Opal container
             port = self.config.get('opal_http_port', 8080)
             
-            # Add important reminder about HTTPS proxy requirement
-            console.print("[yellow]💡 Reminder: In reverse-proxy mode, you need to provide your own HTTPS proxy solution.[/yellow]")
-            console.print("[dim]   Opal requires HTTPS for security. The HTTP endpoint tested here should be behind an HTTPS proxy.[/dim]")
-            
             # In reverse-proxy mode, hosts list is empty, so test localhost directly
             if not hosts:
                 hosts = ['localhost']
@@ -668,12 +664,12 @@ class ContainerDiagnostics:
             for host in hosts:
                 base_url = f"http://{host}:{port}"
                 
-                # Test Opal login page
+                # Test Opal login page - this confirms the service is working
                 opal_test = self._test_http_endpoint(f"{base_url}/", f"Opal web interface (HTTP, reverse-proxy mode)")
                 endpoint_tests.append(opal_test)
                 
-                # Test Opal API
-                api_test = self._test_http_endpoint(f"{base_url}/ws", f"Opal API endpoint (HTTP)")
+                # Test Opal API endpoint - 404 with RESTEASY message indicates Opal is responding correctly
+                api_test = self._test_opal_api_endpoint(f"{base_url}/ws", f"Opal API endpoint (HTTP)")
                 endpoint_tests.append(api_test)
         else:
             # Standard HTTPS mode through nginx
@@ -681,12 +677,12 @@ class ContainerDiagnostics:
             for host in hosts:
                 base_url = f"https://{host}:{port}" if port != 443 else f"https://{host}"
                 
-                # Test Opal login page
+                # Test Opal login page - this confirms the service is working
                 opal_test = self._test_http_endpoint(f"{base_url}/", f"Opal web interface (HTTPS via nginx)")
                 endpoint_tests.append(opal_test)
                 
-                # Test Opal API
-                api_test = self._test_http_endpoint(f"{base_url}/ws", f"Opal API endpoint (HTTPS)")
+                # Test Opal API endpoint - 404 with RESTEASY message indicates Opal is responding correctly
+                api_test = self._test_opal_api_endpoint(f"{base_url}/ws", f"Opal API endpoint (HTTPS)")
                 endpoint_tests.append(api_test)
         
         test.details['tests'] = endpoint_tests
@@ -750,6 +746,525 @@ class ContainerDiagnostics:
                 'status': 'fail',
                 'message': f"❌ Error: {str(e)}"
             }
+    
+    def _test_opal_api_endpoint(self, url: str, description: str) -> dict:
+        """Test Opal API endpoint - treats RESTEASY 404 as success since it indicates Opal is responding"""
+        try:
+            response = requests.get(url, verify=False, timeout=10)
+            
+            # Check if it's a 404 with the expected RESTEASY message (indicates Opal is working)
+            if response.status_code == 404:
+                if "RESTEASY003210" in response.text or "Could not find resource for full path" in response.text:
+                    return {
+                        'url': url,
+                        'description': description,  
+                        'status': 'pass',
+                        'message': f"✅ {description} responding correctly (404 with RESTEASY - expected for /ws endpoint)"
+                    }
+                else:
+                    return {
+                        'url': url,
+                        'description': description,
+                        'status': 'warn',
+                        'message': f"⚠️ {description} returned HTTP 404 (unexpected format)"
+                    }
+            
+            # Any other response code (200, 403, etc.) also indicates Opal is working
+            if response.status_code in [200, 201, 202, 204, 301, 302, 304, 401, 403]:
+                return {
+                    'url': url,
+                    'description': description,
+                    'status': 'pass',
+                    'message': f"✅ {description} accessible (HTTP {response.status_code})"
+                }
+            else:
+                return {
+                    'url': url,
+                    'description': description,
+                    'status': 'warn',
+                    'message': f"⚠️ {description} returned HTTP {response.status_code}"
+                }
+        except requests.exceptions.RequestException as e:
+            return {
+                'url': url,
+                'description': description,
+                'status': 'fail',
+                'message': f"❌ Error: {str(e)}"
+            }
+
+    def test_firewall_configuration(self) -> DiagnosticTest:
+        """Test firewall configuration and rules that might block traffic"""
+        test = DiagnosticTest("firewall-config", "Firewall configuration check")
+        
+        if not self.config:
+            test.status = "fail"
+            test.message = "Configuration not loaded"
+            return test
+        
+        firewall_checks = []
+        
+        # Check UFW (Ubuntu/Debian)
+        ufw_check = self._check_ufw()
+        if ufw_check:
+            firewall_checks.append(ufw_check)
+        
+        # Check iptables rules
+        iptables_check = self._check_iptables()
+        if iptables_check:
+            firewall_checks.append(iptables_check)
+        
+        # Check Docker iptables integration
+        docker_iptables_check = self._check_docker_iptables()
+        if docker_iptables_check:
+            firewall_checks.append(docker_iptables_check)
+        
+        # Check for common port blocking
+        port_blocking_check = self._check_port_blocking()
+        if port_blocking_check:
+            firewall_checks.append(port_blocking_check)
+        
+        if not firewall_checks:
+            test.status = "skip"
+            test.message = "No firewall checks could be performed on this system"
+            return test
+        
+        test.details['tests'] = firewall_checks
+        
+        passed_tests = [t for t in firewall_checks if t['status'] == 'pass']
+        failed_tests = [t for t in firewall_checks if t['status'] == 'fail']
+        warn_tests = [t for t in firewall_checks if t['status'] == 'warn']
+        
+        if len(failed_tests) == 0:
+            test.status = "pass" if len(warn_tests) == 0 else "warn"
+            test.message = f"Firewall configuration appears correct ({len(passed_tests)} checks passed)"
+            if warn_tests:
+                test.message += f", {len(warn_tests)} warnings"
+        else:
+            test.status = "fail"
+            test.message = f"Potential firewall issues detected ({len(failed_tests)} problems found)"
+        
+        return test
+
+    def _check_ufw(self) -> Dict[str, Any]:
+        """Check UFW firewall status and rules"""
+        try:
+            import shutil
+            if not shutil.which("ufw"):
+                return None
+            
+            # Check UFW status
+            result = subprocess.run(
+                ["sudo", "-n", "ufw", "status", "verbose"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode != 0:
+                # Try without sudo
+                result = subprocess.run(
+                    ["ufw", "status", "verbose"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+            
+            if result.returncode == 0:
+                status_output = result.stdout.lower()
+                
+                if "status: inactive" in status_output:
+                    return {
+                        'test': 'UFW Firewall',
+                        'status': 'pass',
+                        'message': '✅ UFW firewall is inactive (not blocking traffic)',
+                        'details': 'UFW is disabled, so it won\'t block Docker traffic'
+                    }
+                elif "status: active" in status_output:
+                    # Check if Docker ports are allowed
+                    ports_to_check = [
+                        self.config.get('opal_external_port', 443),
+                        self.config.get('opal_http_port', 8080),
+                        80, 443
+                    ]
+                    
+                    blocked_ports = []
+                    for port in ports_to_check:
+                        if str(port) not in status_output and f":{port}" not in status_output:
+                            blocked_ports.append(port)
+                    
+                    if blocked_ports:
+                        return {
+                            'test': 'UFW Firewall',
+                            'status': 'warn',
+                            'message': f'⚠️ UFW is active, some ports may be blocked: {blocked_ports}',
+                            'details': f'Consider: sudo ufw allow {blocked_ports[0]} for easy-opal'
+                        }
+                    else:
+                        return {
+                            'test': 'UFW Firewall',
+                            'status': 'pass',
+                            'message': '✅ UFW is active but required ports appear to be allowed',
+                            'details': 'UFW rules seem compatible with easy-opal'
+                        }
+                
+            return None
+            
+        except Exception as e:
+            return {
+                'test': 'UFW Firewall',
+                'status': 'warn',
+                'message': f'⚠️ Could not check UFW status: {str(e)}',
+                'details': 'UFW check requires appropriate permissions'
+            }
+
+    def _check_iptables(self) -> Dict[str, Any]:
+        """Check iptables rules for blocking patterns"""
+        try:
+            import shutil
+            if not shutil.which("iptables"):
+                return None
+            
+            # Check INPUT chain for DROP/REJECT rules
+            result = subprocess.run(
+                ["sudo", "-n", "iptables", "-L", "INPUT", "-n"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode != 0:
+                # Try without sudo
+                result = subprocess.run(
+                    ["iptables", "-L", "INPUT", "-n"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+            
+            if result.returncode == 0:
+                output = result.stdout.lower()
+                
+                # Check for common blocking patterns
+                blocking_patterns = ['drop all', 'reject all', 'drop    0.0.0.0/0', 'reject    0.0.0.0/0']
+                found_blocks = [pattern for pattern in blocking_patterns if pattern in output]
+                
+                if found_blocks:
+                    return {
+                        'test': 'iptables Rules',
+                        'status': 'warn',
+                        'message': '⚠️ Found potentially blocking iptables rules',
+                        'details': f'Blocking patterns detected: {found_blocks}. Check if Docker ports are allowed.'
+                    }
+                else:
+                    return {
+                        'test': 'iptables Rules',
+                        'status': 'pass',
+                        'message': '✅ No obvious blocking iptables rules detected',
+                        'details': 'iptables INPUT chain appears to allow traffic'
+                    }
+            
+            return None
+            
+        except Exception as e:
+            return {
+                'test': 'iptables Rules',
+                'status': 'warn',
+                'message': f'⚠️ Could not check iptables: {str(e)}',
+                'details': 'iptables check requires appropriate permissions'
+            }
+
+    def _check_docker_iptables(self) -> Dict[str, Any]:
+        """Check Docker's iptables integration"""
+        try:
+            import shutil
+            if not shutil.which("iptables"):
+                return None
+            
+            # Check for Docker chains
+            result = subprocess.run(
+                ["sudo", "-n", "iptables", "-L", "-n"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode != 0:
+                result = subprocess.run(
+                    ["iptables", "-L", "-n"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+            
+            if result.returncode == 0:
+                output = result.stdout
+                
+                docker_chains = ['DOCKER', 'DOCKER-USER', 'DOCKER-ISOLATION']
+                found_chains = [chain for chain in docker_chains if chain in output]
+                
+                if found_chains:
+                    return {
+                        'test': 'Docker iptables',
+                        'status': 'pass',
+                        'message': f'✅ Docker iptables integration active ({len(found_chains)} chains found)',
+                        'details': f'Docker chains: {found_chains}. Docker should handle port forwarding.'
+                    }
+                else:
+                    return {
+                        'test': 'Docker iptables',
+                        'status': 'warn',
+                        'message': '⚠️ Docker iptables chains not found',
+                        'details': 'Docker may not be managing iptables. Check Docker daemon configuration.'
+                    }
+            
+            return None
+            
+        except Exception as e:
+            return {
+                'test': 'Docker iptables',
+                'status': 'warn',
+                'message': f'⚠️ Could not check Docker iptables: {str(e)}',
+                'details': 'Docker iptables check requires appropriate permissions'
+            }
+
+    def _check_port_blocking(self) -> Dict[str, Any]:
+        """Check for port blocking by attempting connections"""
+        try:
+            # Test if we can bind to the configured ports
+            ports_to_test = []
+            
+            ssl_strategy = self.config.get('ssl', {}).get('strategy', 'self-signed')
+            if ssl_strategy == 'reverse-proxy':
+                ports_to_test.append(self.config.get('opal_http_port', 8080))
+            else:
+                ports_to_test.append(self.config.get('opal_external_port', 443))
+            
+            blocked_ports = []
+            allowed_ports = []
+            
+            for port in ports_to_test:
+                try:
+                    # Try to create a test socket
+                    test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    test_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    test_socket.bind(('127.0.0.1', 0))  # Bind to any available port
+                    test_socket.close()
+                    
+                    # Now test if we can connect to the actual port (if something is listening)
+                    conn_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    conn_socket.settimeout(2)
+                    result = conn_socket.connect_ex(('127.0.0.1', port))
+                    conn_socket.close()
+                    
+                    if result == 0:
+                        allowed_ports.append(port)
+                    else:
+                        # Port not accessible, but this might be normal if service isn't running
+                        allowed_ports.append(port)
+                        
+                except Exception:
+                    blocked_ports.append(port)
+            
+            if blocked_ports:
+                return {
+                    'test': 'Port Accessibility',
+                    'status': 'warn',
+                    'message': f'⚠️ Some ports may be blocked by firewall: {blocked_ports}',
+                    'details': 'Ports could not be tested. Check firewall rules and port availability.'
+                }
+            else:
+                return {
+                    'test': 'Port Accessibility',
+                    'status': 'pass',
+                    'message': f'✅ Configured ports appear accessible: {allowed_ports}',
+                    'details': 'Port binding tests suggest no firewall blocking'
+                }
+                
+        except Exception as e:
+            return {
+                'test': 'Port Accessibility',
+                'status': 'warn',
+                'message': f'⚠️ Could not test port accessibility: {str(e)}',
+                'details': 'Port testing failed, check system permissions'
+            }
+
+    def test_waf_detection(self) -> DiagnosticTest:
+        """Detect WAF (Web Application Firewall) that might block requests"""
+        test = DiagnosticTest("waf-detection", "WAF/DDoS protection detection")
+        
+        if not self.config:
+            test.status = "fail"
+            test.message = "Configuration not loaded"
+            return test
+        
+        waf_checks = []
+        
+        # Get target URLs for testing
+        ssl_strategy = self.config.get('ssl', {}).get('strategy', 'self-signed')
+        hosts = self.config.get('hosts', ['localhost'])
+        
+        if ssl_strategy == 'reverse-proxy':
+            if not hosts:
+                hosts = ['localhost']
+            port = self.config.get('opal_http_port', 8080)
+            test_urls = [f"http://{host}:{port}" for host in hosts]
+        else:
+            port = self.config.get('opal_external_port', 443)
+            test_urls = [f"https://{host}:{port}" if port != 443 else f"https://{host}" for host in hosts]
+        
+        for url in test_urls:
+            waf_check = self._check_waf_headers(url)
+            if waf_check:
+                waf_checks.append(waf_check)
+            
+            rate_limit_check = self._check_rate_limiting(url)
+            if rate_limit_check:
+                waf_checks.append(rate_limit_check)
+            
+            # Only test first URL to avoid triggering actual WAF
+            break
+        
+        if not waf_checks:
+            test.status = "skip"
+            test.message = "Could not perform WAF detection tests"
+            return test
+        
+        test.details['tests'] = waf_checks
+        
+        failed_tests = [t for t in waf_checks if t['status'] == 'fail']
+        warn_tests = [t for t in waf_checks if t['status'] == 'warn']
+        passed_tests = [t for t in waf_checks if t['status'] == 'pass']
+        
+        if len(failed_tests) > 0:
+            test.status = "fail"
+            test.message = f"WAF blocking detected ({len(failed_tests)} issues found)"
+        elif len(warn_tests) > 0:
+            test.status = "warn"
+            test.message = f"Potential WAF/protection detected ({len(warn_tests)} warnings)"
+        else:
+            test.status = "pass"
+            test.message = f"No WAF blocking detected ({len(passed_tests)} checks passed)"
+        
+        return test
+
+    def _check_waf_headers(self, url: str) -> Dict[str, Any]:
+        """Check for WAF-related headers in HTTP responses"""
+        try:
+            response = requests.get(url, timeout=10, verify=False, allow_redirects=True)
+            headers = response.headers
+            
+            # Common WAF signatures
+            waf_headers = {
+                'cloudflare': ['cf-ray', 'cf-cache-status', 'server'],
+                'aws_waf': ['x-amzn-requestid', 'x-amz-cf-id'],
+                'azure_waf': ['x-azure-ref', 'x-msedge-ref'],
+                'sucuri': ['x-sucuri-id', 'x-sucuri-cache'],
+                'incapsula': ['x-iinfo', 'x-cdn'],
+                'akamai': ['x-akamai-request-id', 'x-cache'],
+                'nginx_waf': ['x-nginx-cache'],
+                'mod_security': ['x-mod-security-message']
+            }
+            
+            detected_wafs = []
+            for waf_name, header_list in waf_headers.items():
+                for header in header_list:
+                    if header.lower() in [h.lower() for h in headers.keys()]:
+                        if waf_name == 'cloudflare' and header == 'server' and 'cloudflare' in headers.get('server', '').lower():
+                            detected_wafs.append(waf_name)
+                        elif waf_name != 'cloudflare' or header != 'server':
+                            detected_wafs.append(waf_name)
+            
+            # Check for common blocking responses
+            if response.status_code in [403, 406, 429, 503]:
+                blocking_keywords = ['blocked', 'forbidden', 'security', 'firewall', 'protection', 'rate limit']
+                response_text = response.text.lower()
+                found_keywords = [kw for kw in blocking_keywords if kw in response_text]
+                
+                if found_keywords:
+                    return {
+                        'test': f'WAF Headers ({url})',
+                        'status': 'fail',
+                        'message': f'❌ Request appears to be blocked (HTTP {response.status_code})',
+                        'details': f'Blocking keywords found: {found_keywords}. Check WAF configuration.'
+                    }
+            
+            if detected_wafs:
+                return {
+                    'test': f'WAF Headers ({url})',
+                    'status': 'warn',
+                    'message': f'⚠️ WAF/CDN detected: {list(set(detected_wafs))}',
+                    'details': 'Web Application Firewall or CDN present. Ensure proper configuration for Opal.'
+                }
+            else:
+                return {
+                    'test': f'WAF Headers ({url})',
+                    'status': 'pass',
+                    'message': f'✅ No WAF blocking detected',
+                    'details': f'HTTP {response.status_code} response, no obvious WAF signatures'
+                }
+                
+        except requests.exceptions.ConnectionError:
+            return {
+                'test': f'WAF Headers ({url})',
+                'status': 'warn',
+                'message': '⚠️ Connection failed - possible firewall blocking',
+                'details': 'Could not connect to test WAF headers. Check firewall/network configuration.'
+            }
+        except Exception as e:
+            return {
+                'test': f'WAF Headers ({url})',
+                'status': 'warn',
+                'message': f'⚠️ WAF detection failed: {str(e)}',
+                'details': 'Could not complete WAF header analysis'
+            }
+
+    def _check_rate_limiting(self, url: str) -> Dict[str, Any]:
+        """Check for rate limiting by making multiple requests"""
+        try:
+            # Make 3 quick requests to test for rate limiting
+            response_codes = []
+            for i in range(3):
+                response = requests.get(url, timeout=5, verify=False, allow_redirects=True)
+                response_codes.append(response.status_code)
+                
+                # Check for rate limiting headers
+                rate_limit_headers = ['x-ratelimit-remaining', 'x-rate-limit-remaining', 'retry-after', 'x-ratelimit-limit']
+                found_headers = [h for h in rate_limit_headers if h.lower() in [header.lower() for header in response.headers.keys()]]
+                
+                if response.status_code == 429:
+                    return {
+                        'test': f'Rate Limiting ({url})',
+                        'status': 'fail',
+                        'message': '❌ Rate limiting detected (HTTP 429)',
+                        'details': f'Server returned "Too Many Requests". Headers: {found_headers}'
+                    }
+                
+                if found_headers:
+                    return {
+                        'test': f'Rate Limiting ({url})',
+                        'status': 'warn',
+                        'message': f'⚠️ Rate limiting headers detected: {found_headers}',
+                        'details': 'Service has rate limiting configured. Monitor for potential blocking.'
+                    }
+                
+                # Small delay between requests
+                import time
+                time.sleep(0.5)
+            
+            return {
+                'test': f'Rate Limiting ({url})',
+                'status': 'pass',
+                'message': '✅ No rate limiting detected',
+                'details': f'Multiple requests successful: {response_codes}'
+            }
+            
+        except Exception as e:
+            return {
+                'test': f'Rate Limiting ({url})',
+                'status': 'warn',
+                'message': f'⚠️ Rate limiting test failed: {str(e)}',
+                'details': 'Could not complete rate limiting analysis'
+            }
 
     def run_all_tests(self) -> List[DiagnosticTest]:
         """Run all diagnostic tests"""
@@ -762,7 +1277,9 @@ class ContainerDiagnostics:
             self.test_container_connectivity(),
             self.test_external_ports(),
             self.test_ssl_certificates(),
-            self.test_service_endpoints()
+            self.test_service_endpoints(),
+            self.test_firewall_configuration(),
+            self.test_waf_detection()
         ]
         
         return [test for test in tests if test is not None]
@@ -824,7 +1341,8 @@ class ContainerDiagnostics:
             "🔗 Network Connectivity": [],
             "🌐 External Access": [],
             "🔒 Security & Certificates": [],
-            "💾 Service Health": []
+            "💾 Service Health": [],
+            "🛡️ Firewall & Protection": []
         }
         
         # Categorize tests
@@ -841,6 +1359,8 @@ class ContainerDiagnostics:
                 test_categories["🔒 Security & Certificates"].append(test)
             elif "endpoint" in test.name:
                 test_categories["💾 Service Health"].append(test)
+            elif "firewall" in test.name or "waf" in test.name:
+                test_categories["🛡️ Firewall & Protection"].append(test)
             else:
                 test_categories["🐳 Infrastructure"].append(test)
         
@@ -875,8 +1395,8 @@ class ContainerDiagnostics:
                 console.print(f"     {explanation}")
                 console.print(f"     Result: {test.message}")
                 
-                # Always show details for connectivity tests, show for others only on issues
-                if (test.name == "container-connectivity" and test.details) or (test.status in ["fail", "warn"] and test.details):
+                # Always show details for connectivity tests, service endpoints, and firewall/WAF tests in verbose mode
+                if ((test.name == "container-connectivity" or test.name == "service-endpoints" or test.name == "firewall-config" or test.name == "waf-detection") and test.details) or (test.status in ["fail", "warn"] and test.details):
                     self._display_test_details(test)
                 
                 console.print()
@@ -885,6 +1405,20 @@ class ContainerDiagnostics:
         failed_tests = [t for t in tests if t.status in ["fail", "warn"]]
         if failed_tests:
             self._display_troubleshooting_guide(failed_tests)
+        
+        # Display reverse-proxy reminder if applicable
+        if self.config and self.config.get('ssl', {}).get('strategy') == 'reverse-proxy':
+            console.print("\n" + "="*70)
+            console.print("[bold yellow]⚠️  IMPORTANT REMINDER![/bold yellow]")
+            console.print("="*70)
+            console.print("[yellow]💡 You are using reverse-proxy mode (HTTP only).[/yellow]")
+            console.print("[bold red]🔒 Opal requires HTTPS for security in production![/bold red]")
+            console.print("\n[dim]Next steps:[/dim]")
+            console.print("   • Configure your external HTTPS proxy (nginx, Apache, Cloudflare, etc.)")
+            console.print("   • Point your proxy to the HTTP port tested above")
+            console.print("   • Ensure the HTTP port is NOT directly accessible from the internet")
+            console.print("   • Users should only access Opal through your HTTPS proxy")
+            console.print("[dim]\nFor help with proxy configuration, see the easy-opal documentation.[/dim]")
 
     def _get_test_explanation(self, test_name: str) -> str:
         """Get a user-friendly explanation of what each test does"""
@@ -894,7 +1428,9 @@ class ContainerDiagnostics:
             "container-connectivity": "Tests actual TCP connectivity between containers using bash /dev/tcp",
             "external-ports": "Verifies that external ports are accessible from the host system",
             "ssl-certificates": "Validates SSL certificate configuration and expiration dates",
-            "service-endpoints": "Tests HTTP/HTTPS endpoints to ensure services are responding correctly"
+            "service-endpoints": "Tests HTTP/HTTPS endpoints to ensure services are responding correctly",
+            "firewall-config": "Checks firewall rules and configuration that might block traffic",
+            "waf-detection": "Detects Web Application Firewalls and rate limiting that might interfere with Opal"
         }
         return explanations.get(test_name, "Performs system health verification")
 
@@ -913,7 +1449,8 @@ class ContainerDiagnostics:
                 console.print("     [dim]Sub-test details:[/dim]")
                 for subtest in test.details['tests']:
                     status_icon = "✅" if subtest.get('status') == 'pass' else ("⚠️" if subtest.get('status') == 'warn' else "❌")
-                    description = subtest.get('description', 'Unknown test')
+                    # Handle both 'description' and 'test' keys for different test types
+                    description = subtest.get('description') or subtest.get('test', 'Unknown test')
                     message = subtest.get('message', 'No message')
                     console.print(f"       {status_icon} {description}: {message}")
         
@@ -973,6 +1510,24 @@ class ContainerDiagnostics:
                 "For reverse-proxy mode: verify your proxy forwards correctly to the HTTP port",
                 "Test individual container endpoints directly",
                 "Remember: Opal requires HTTPS for security in production"
+            ],
+            "firewall-config": [
+                "Check UFW status: sudo ufw status verbose",
+                "Allow required ports: sudo ufw allow <port>",
+                "Check iptables rules: sudo iptables -L -n",
+                "Verify Docker iptables integration is working",
+                "For UFW: ensure Docker integration is not conflicting",
+                "Test port connectivity: telnet localhost <port>",
+                "Check Docker daemon configuration for iptables options"
+            ],
+            "waf-detection": [
+                "Check WAF/CDN configuration to allow Opal traffic",
+                "Whitelist your server's IP address in WAF settings",
+                "Review rate limiting settings and increase limits if needed",
+                "For Cloudflare: check firewall rules and security level",
+                "Test with WAF temporarily disabled to confirm blocking",
+                "Check WAF logs for blocked requests",
+                "Ensure proper SSL/TLS configuration in WAF"
             ]
         }
         

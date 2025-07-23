@@ -188,6 +188,7 @@ Run comprehensive health diagnostics on your easy-opal installation. This comman
 -   **🌐 External Access**: Port accessibility from host system with 2-minute retry logic for service startup
 -   **🔒 Security & Certificates**: SSL certificate validation with 2-minute retry logic for SSL service startup
 -   **💾 Service Health**: HTTP/HTTPS endpoint responses with 2-minute retry logic for web service initialization
+-   **🛡️ Firewall & Protection**: Firewall rules (UFW, iptables), WAF detection (Cloudflare, AWS, etc.), rate limiting, and Docker network integration
 
 **Output formats:**
 
@@ -200,7 +201,7 @@ Run comprehensive health diagnostics on your easy-opal installation. This comman
 
 # When everything is healthy:
 🎉 SYSTEM HEALTHY
-   ✅ All 6 tests passed - your easy-opal installation is working perfectly!
+   ✅ All 8 tests passed - your easy-opal installation is working perfectly!
 
 # When issues are detected:
 🚨 CRITICAL ISSUES DETECTED
