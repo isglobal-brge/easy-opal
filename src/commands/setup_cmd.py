@@ -23,6 +23,40 @@ from src.commands.lifecycle_cmds import reset as interactive_reset
 
 console = Console()
 
+def display_header():
+    """Display the colorful easy-opal header with attribution."""
+    # ANSI color codes
+    RED = '\033[1;31m'
+    GREEN = '\033[1;32m'
+    LIME_GREEN = '\033[38;5;46m'
+    BLUE = '\033[1;34m'
+    YELLOW = '\033[1;33m'
+    MAGENTA = '\033[1;35m'
+    CYAN = '\033[1;36m'
+    TURQUOISE = '\033[38;5;73m'
+    ORANGE = '\033[38;5;173m'
+    BOLD = '\033[1m'
+    NC = '\033[0m'  # No Color
+
+    print("")
+    print(f"{LIME_GREEN}========================================================={NC}{LIME_GREEN}{BOLD}")
+    print("                                                       _ ")
+    print("                                                      | |")
+    print("  ___   __ _  ___  _   _           ___   _ __    __ _ | |")
+    print(" / _ \ / _` |/ __|| | | | ______  / _ \ | '_ \  / _` || |")
+    print("|  __/| (_| |\__ \| |_| ||______|| (_) || |_) || (_| || |")
+    print(" \___| \__,_||___/ \__, |         \___/ | .__/  \__,_||_|")
+    print("                    __/ |               | |              ")
+    print("                   |___/                |_|              ")
+    print(f"{NC}")
+    print(f"{LIME_GREEN}========================================================={NC}")
+    print("")
+    print(f"Made with ❤️  by {BOLD}\033]8;;https://davidsarratgonzalez.github.io\007David Sarrat González\033]8;;\007{NC}")
+    print("")
+    print(f"{TURQUOISE}{BOLD}\033]8;;https://brge.isglobal.org\007Bioinformatics Research Group in Epidemiology (BRGE)\033]8;;\007{NC}")
+    print(f"{ORANGE}{BOLD}\033]8;;https://www.isglobal.org\007Barcelona Institute for Global Health (ISGlobal)\033]8;;\007{NC}")
+    print("")
+
 def is_port_in_use(port: int) -> bool:
     """Checks if a local TCP port is already in use."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -70,12 +104,15 @@ def setup(
 ):
     """Guides you through the initial setup or reconfigures the environment."""
     
+    # Display header
+    display_header()
+    
     # First, handle the potential teardown of an existing stack.
     if CONFIG_FILE.exists():
         
         if not yes: # Interactive path
             if not Confirm.ask(
-                "\n[yellow]An existing configuration was found. Continuing will overwrite this configuration. Proceed?[/yellow]", 
+                "[yellow]An existing configuration was found. Continuing will overwrite this configuration. Proceed?[/yellow]", 
                 default=False
             ):
                 console.print("[bold red]Setup aborted by user.[/bold red]")
