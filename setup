@@ -64,6 +64,60 @@ check_python_version() {
     fi
 }
 
+# Function to set up Python alternatives (cross-platform)
+setup_python_alternatives() {
+    local python_path="$1"
+    local pip_path="$2"
+    
+    echo "🔧 Setting up Python alternatives..."
+    
+    # Method 1: Try update-alternatives (most common)
+    if command -v update-alternatives &> /dev/null; then
+        echo "Using update-alternatives..."
+        if sudo update-alternatives --install /usr/bin/python3 python3 "$python_path" 100 2>/dev/null && \
+           sudo update-alternatives --install /usr/bin/pip3 pip3 "$pip_path" 100 2>/dev/null; then
+            sudo update-alternatives --set python3 "$python_path" 2>/dev/null || true
+            sudo update-alternatives --set pip3 "$pip_path" 2>/dev/null || true
+            return 0
+        fi
+    fi
+    
+    # Method 2: Try alternatives (older RHEL/CentOS)
+    if command -v alternatives &> /dev/null; then
+        echo "Using alternatives (legacy)..."
+        if sudo alternatives --install /usr/bin/python3 python3 "$python_path" 100 2>/dev/null && \
+           sudo alternatives --install /usr/bin/pip3 pip3 "$pip_path" 100 2>/dev/null; then
+            sudo alternatives --set python3 "$python_path" 2>/dev/null || true
+            sudo alternatives --set pip3 "$pip_path" 2>/dev/null || true
+            return 0
+        fi
+    fi
+    
+    # Method 3: Direct symlinks (fallback for all systems)
+    echo "Using direct symlinks as fallback..."
+    if sudo ln -sf "$python_path" /usr/bin/python3 2>/dev/null && \
+       sudo ln -sf "$pip_path" /usr/bin/pip3 2>/dev/null; then
+        return 0
+    fi
+    
+    # Method 4: Try /usr/local/bin symlinks (for systems where /usr/bin is protected)
+    echo "Trying /usr/local/bin symlinks..."
+    sudo mkdir -p /usr/local/bin
+    if sudo ln -sf "$python_path" /usr/local/bin/python3 2>/dev/null && \
+       sudo ln -sf "$pip_path" /usr/local/bin/pip3 2>/dev/null; then
+        # Ensure /usr/local/bin is in PATH
+        if ! echo "$PATH" | grep -q "/usr/local/bin"; then
+            export PATH="/usr/local/bin:$PATH"
+            echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.bashrc
+        fi
+        return 0
+    fi
+    
+    echo "⚠️  Warning: Could not set up Python alternatives automatically"
+    echo "Manual setup may be required."
+    return 1
+}
+
 # Function to install Python 3.8+ on different distributions
 install_newer_python() {
     echo "🔄 Installing Python 3.8+ for your system..."
@@ -106,12 +160,8 @@ install_newer_python() {
              fi
              
              echo "✅ Python 3.11 installed successfully"
-             echo "Creating symlink to use python3.11 as default python3..."
-             sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 100
-             sudo update-alternatives --install /usr/bin/pip3 pip3 /usr/bin/pip3.11 100
-             # Force the new version to be active
-             sudo update-alternatives --set python3 /usr/bin/python3.11
-             sudo update-alternatives --set pip3 /usr/bin/pip3.11
+             echo "Setting python3.11 as default python3..."
+             setup_python_alternatives "/usr/bin/python3.11" "/usr/bin/pip3.11"
              ;;
             
         fedora)
@@ -124,12 +174,8 @@ install_newer_python() {
             fi
             
             echo "✅ Python 3.11 installed successfully"
-            echo "Creating symlink to use python3.11 as default python3..."
-            sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 100
-            sudo update-alternatives --install /usr/bin/pip3 pip3 /usr/bin/pip3.11 100
-            # Force the new version to be active
-            sudo update-alternatives --set python3 /usr/bin/python3.11
-            sudo update-alternatives --set pip3 /usr/bin/pip3.11
+            echo "Setting python3.11 as default python3..."
+            setup_python_alternatives "/usr/bin/python3.11" "/usr/bin/pip3.11"
             ;;
             
                  centos|rhel|rocky|almalinux)
@@ -143,12 +189,7 @@ install_newer_python() {
                  
                  if sudo dnf install -y python3.11 python3.11-pip python3.11-devel 2>/dev/null; then
                      echo "✅ Python 3.11 installed via dnf"
-                     # Create proper symlinks to override system python3
-                     sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 100
-                     sudo update-alternatives --install /usr/bin/pip3 pip3 /usr/bin/pip3.11 100
-                     # Force the new version to be active
-                     sudo update-alternatives --set python3 /usr/bin/python3.11
-                     sudo update-alternatives --set pip3 /usr/bin/pip3.11
+                     setup_python_alternatives "/usr/bin/python3.11" "/usr/bin/pip3.11"
                  else
                      echo "Trying alternative installation method..."
                      install_python_from_source "3.11.7"
@@ -156,14 +197,9 @@ install_newer_python() {
              elif command -v yum &> /dev/null; then
                  # For older CentOS versions, first try to install Python 3.11 from EPEL
                  sudo yum install -y epel-release
-                 if sudo yum install -y python3.11 python3.11-pip python3.11-devel 2>/dev/null; then
-                     echo "✅ Python 3.11 installed via yum"
-                     # Create proper symlinks to override system python3
-                     sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 100
-                     sudo update-alternatives --install /usr/bin/pip3 pip3 /usr/bin/pip3.11 100
-                     # Force the new version to be active
-                     sudo update-alternatives --set python3 /usr/bin/python3.11
-                     sudo update-alternatives --set pip3 /usr/bin/pip3.11
+                                   if sudo yum install -y python3.11 python3.11-pip python3.11-devel 2>/dev/null; then
+                      echo "✅ Python 3.11 installed via yum"
+                      setup_python_alternatives "/usr/bin/python3.11" "/usr/bin/pip3.11"
                  else
                      # Fallback to Software Collections or source
                      if yum list available | grep -q rh-python38; then
@@ -202,12 +238,19 @@ EOF
             fi
             
             echo "✅ Python 3.11 installed successfully"
+            setup_python_alternatives "/usr/bin/python3.11" "/usr/bin/pip3.11"
             ;;
             
         arch|manjaro)
-            echo "Installing Python 3.11 via pacman..."
-            sudo pacman -S --noconfirm python
-            echo "✅ Python 3.11 installed successfully"
+            echo "Installing Python via pacman..."
+            sudo pacman -S --noconfirm python python-pip
+            echo "✅ Python installed successfully"
+            # Arch usually has the latest Python as default, but let's verify
+            if ! python3 -c "import sys; exit(0 if sys.version_info >= (3, 8) else 1)" 2>/dev/null; then
+                echo "⚠️  Arch Python version might be too old, trying python3.11..."
+                sudo pacman -S --noconfirm python311 python311-pip 2>/dev/null || true
+                setup_python_alternatives "/usr/bin/python3.11" "/usr/bin/pip3.11"
+            fi
             ;;
             
         *)
@@ -262,17 +305,8 @@ install_python_from_source() {
     make -j $(nproc)
     sudo make altinstall
     
-    # Create symlinks with higher preference than system python
-    sudo ln -sf /usr/local/bin/python3.11 /usr/local/bin/python3
-    sudo ln -sf /usr/local/bin/pip3.11 /usr/local/bin/pip3
-    
-    # Also try to override system python using update-alternatives if available
-    if command -v update-alternatives &> /dev/null; then
-        sudo update-alternatives --install /usr/bin/python3 python3 /usr/local/bin/python3.11 200
-        sudo update-alternatives --install /usr/bin/pip3 pip3 /usr/local/bin/pip3.11 200
-        sudo update-alternatives --set python3 /usr/local/bin/python3.11
-        sudo update-alternatives --set pip3 /usr/local/bin/pip3.11
-    fi
+    # Set up alternatives for source-compiled Python
+    setup_python_alternatives "/usr/local/bin/python3.11" "/usr/local/bin/pip3.11"
     
     # Update PATH
     echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.bashrc
