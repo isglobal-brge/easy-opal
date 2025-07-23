@@ -1,5 +1,6 @@
 import click
 import subprocess
+import shutil
 from rich.console import Console
 from rich.prompt import Confirm
 
@@ -21,6 +22,55 @@ def run_git_command(command: list) -> (bool, str):
         return False, "Git not found"
     except subprocess.CalledProcessError as e:
         return False, e.stderr.strip()
+
+def update_dependencies():
+    """Check and update Python dependencies if Poetry is available."""
+    console.print("[cyan]🔍 Checking for Python dependency updates...[/cyan]")
+    
+    # Check if Poetry is available
+    if shutil.which("poetry"):
+        console.print("[blue]📦 Poetry detected, updating dependencies...[/blue]")
+        
+        # Check if we're in a Poetry project
+        try:
+            import os
+            if os.path.exists("pyproject.toml") and os.path.exists("poetry.lock"):
+                console.print("  - Running poetry install to update dependencies")
+                
+                # Run poetry install --only=main
+                try:
+                    result = subprocess.run(
+                        ["poetry", "install", "--only=main"],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8"
+                    )
+                    console.print("[green]✅ Dependencies updated successfully[/green]")
+                    return True
+                except subprocess.CalledProcessError as e:
+                    # Poetry install might return non-zero but still work
+                    console.print("[yellow]⚠️  Poetry install completed with warnings (this may be normal)[/yellow]")
+                    if e.stdout:
+                        console.print(f"[dim]{e.stdout}[/dim]")
+                    return True
+            else:
+                console.print("[yellow]⚠️  Poetry files not found, skipping dependency update[/yellow]")
+                return False
+        except Exception as e:
+            console.print(f"[red]❌ Error updating dependencies: {e}[/red]")
+            return False
+    else:
+        # Check if Python is available and suggest poetry
+        if shutil.which("python3") or shutil.which("python"):
+            console.print("[yellow]📦 Poetry not found, but Python is available[/yellow]")
+            console.print("  - Consider installing Poetry for automatic dependency management")
+            console.print("  - You can install it with: curl -sSL https://install.python-poetry.org | python3 -")
+            console.print("  - Or run './setup' manually to update dependencies")
+        else:
+            console.print("[blue]📦 Python/Poetry not detected, skipping dependency update[/blue]")
+            console.print("  - If you're using Python, run './setup' manually to update dependencies")
+        return False
 
 @click.command()
 def update():
@@ -68,7 +118,13 @@ def update():
         if success:
             console.print(f"[dim]{reset_output}[/dim]")
             console.print("\n[bold green]✅ Update successful![/bold green]")
-            console.print("[yellow]If the update included new Python dependencies, please run './setup' again to install them.[/yellow]")
+            
+            # Update dependencies automatically
+            console.print()
+            dependencies_updated = update_dependencies()
+            
+            if not dependencies_updated:
+                console.print("[yellow]If the update included new Python dependencies, please run './setup' again to install them.[/yellow]")
         else:
             console.print("[bold red]Failed to apply updates.[/bold red]")
             console.print(f"Error: {reset_output}") 
