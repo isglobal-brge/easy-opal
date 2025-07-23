@@ -4,6 +4,7 @@
 # Parse command line arguments
 SKIP_MKCERT=false
 UPGRADE_PYTHON=false
+UPGRADE_DOCKER=false
 for arg in "$@"; do
     case $arg in
         --skip-mkcert)
@@ -14,16 +15,22 @@ for arg in "$@"; do
             UPGRADE_PYTHON=true
             shift
             ;;
+        --upgrade-docker)
+            UPGRADE_DOCKER=true
+            shift
+            ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
             echo "Options:"
             echo "  --skip-mkcert      Skip mkcert installation (for manual SSL cert management)"
             echo "  --upgrade-python   Install/upgrade to Python 3.8+ if needed"
+            echo "  --upgrade-docker   Install/upgrade Docker CE to latest version"
             echo "  --help, -h         Show this help message"
             echo ""
-            echo "Python Version Requirements:"
+            echo "System Requirements:"
             echo "  - Poetry 2.x requires Python 3.8 or higher"
-            echo "  - If you have Python 3.6/3.7, use --upgrade-python to install a newer version"
+            echo "  - Docker 17.06+ required (20.10+ recommended)"
+            echo "  - If you have older versions, use --upgrade-python or --upgrade-docker"
             exit 0
             ;;
         *)
@@ -168,6 +175,253 @@ setup_python_alternatives() {
     echo "⚠️  Warning: Could not set up Python alternatives automatically"
     echo "Manual setup may be required."
     return 1
+}
+
+# Function to check Docker version
+check_docker_version() {
+    if ! command -v docker &> /dev/null; then
+        echo "❌ [ERROR] 'docker' could not be found."
+        return 1
+    fi
+
+    # Debug: show which docker we're using
+    docker_path=$(which docker 2>/dev/null || echo "unknown")
+    echo "🔍 Using docker from: $docker_path"
+    
+    # Get Docker version
+    docker_version=$(docker --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    echo "🐳 Docker version: $docker_version"
+    
+    # Check if version meets requirements (Docker 17.06+)
+    if docker version --format '{{.Server.Version}}' &>/dev/null; then
+        server_version=$(docker version --format '{{.Server.Version}}' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
+        if [[ -n "$server_version" ]]; then
+            major=$(echo "$server_version" | cut -d. -f1)
+            minor=$(echo "$server_version" | cut -d. -f2)
+            if [[ $major -gt 17 ]] || [[ $major -eq 17 && $minor -ge 6 ]]; then
+                echo "✅ Docker version is compatible"
+                return 0
+            else
+                echo "⚠️  Docker $server_version detected. Docker 17.06+ recommended"
+                return 2
+            fi
+        fi
+    fi
+    
+    # Fallback version check
+    if [[ -n "$docker_version" ]]; then
+        major=$(echo "$docker_version" | cut -d. -f1)
+        minor=$(echo "$docker_version" | cut -d. -f2)
+        if [[ $major -gt 17 ]] || [[ $major -eq 17 && $minor -ge 6 ]]; then
+            echo "✅ Docker version is compatible"
+            return 0
+        else
+            echo "⚠️  Docker $docker_version detected. Docker 17.06+ recommended"
+            return 2
+        fi
+    fi
+    
+    echo "⚠️  Could not determine Docker version. Proceeding with caution."
+    return 2
+}
+
+# Function to install Docker CE on different distributions
+install_docker() {
+    echo "🐳 Installing Docker CE for your system..."
+    OS="$(uname -s)"
+    
+    if [ "$OS" = "Darwin" ]; then
+        echo "❌ Docker Desktop for macOS requires manual installation."
+        echo "Please download and install Docker Desktop from:"
+        echo "https://www.docker.com/products/docker-desktop/"
+        echo ""
+        echo "After installation, re-run this script."
+        return 1
+    fi
+    
+    # Detect Linux distribution
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        DISTRO=$ID
+        DISTRO_VERSION=$VERSION_ID
+    else
+        DISTRO="unknown"
+    fi
+    
+    case "$DISTRO" in
+        ubuntu)
+            echo "Installing Docker CE on Ubuntu $DISTRO_VERSION..."
+            
+            # Remove old Docker packages
+            sudo apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null || true
+            
+            # Update package index
+            sudo apt-get update
+            
+            # Install prerequisites
+            sudo apt-get install -y ca-certificates curl gnupg lsb-release
+            
+            # Add Docker's official GPG key
+            sudo mkdir -p /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            
+            # Set up repository
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+            
+            # Install Docker Engine
+            sudo apt-get update
+            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+            ;;
+            
+        debian)
+            echo "Installing Docker CE on Debian $DISTRO_VERSION..."
+            
+            # Remove old Docker packages
+            sudo apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null || true
+            
+            # Update package index
+            sudo apt-get update
+            
+            # Install prerequisites
+            sudo apt-get install -y ca-certificates curl gnupg lsb-release
+            
+            # Add Docker's official GPG key
+            sudo mkdir -p /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            
+            # Set up repository
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+            
+            # Install Docker Engine
+            sudo apt-get update
+            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+            ;;
+            
+        fedora)
+            echo "Installing Docker CE on Fedora $DISTRO_VERSION..."
+            
+            # Remove old Docker packages
+            sudo dnf remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-selinux docker-engine-selinux docker-engine 2>/dev/null || true
+            
+            # Install prerequisites
+            sudo dnf install -y dnf-plugins-core
+            
+            # Add Docker repository
+            sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+            
+            # Install Docker Engine
+            sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+            ;;
+            
+        centos|rhel|rocky|almalinux)
+            echo "Installing Docker CE on RHEL-based system $DISTRO_VERSION..."
+            
+            # Check version compatibility
+            major_version=$(echo "$DISTRO_VERSION" | cut -d. -f1)
+            if [[ $major_version -lt 8 ]]; then
+                echo "⚠️  Docker CE requires CentOS/RHEL 8+. Your version: $DISTRO_VERSION"
+                echo "For older versions, please install Docker manually:"
+                echo "https://docs.docker.com/engine/install/centos/"
+                return 1
+            fi
+            
+            # Remove old Docker packages
+            if command -v dnf &> /dev/null; then
+                sudo dnf remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine podman runc 2>/dev/null || true
+                
+                # Install prerequisites
+                sudo dnf install -y dnf-plugins-core
+                
+                # Add Docker repository
+                sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+                
+                # Install Docker Engine
+                sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+            else
+                echo "❌ dnf not found. CentOS 7 and below require manual Docker installation."
+                return 1
+            fi
+            ;;
+            
+        arch|manjaro)
+            echo "Installing Docker on Arch-based system..."
+            
+            # Install Docker from community repository
+            sudo pacman -S --noconfirm docker docker-compose
+            ;;
+            
+        opensuse*|sles)
+            echo "Installing Docker CE on openSUSE/SLES..."
+            
+            # Add Docker repository
+            sudo zypper addrepo https://download.docker.com/linux/sles/docker-ce.repo
+            sudo zypper refresh
+            
+            # Install Docker Engine
+            sudo zypper install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+            ;;
+            
+        alpine)
+            echo "Installing Docker on Alpine Linux..."
+            
+            # Install Docker from community repository
+            sudo apk update
+            sudo apk add docker docker-compose
+            ;;
+            
+        void)
+            echo "Installing Docker on Void Linux..."
+            
+            # Install Docker from repositories
+            sudo xbps-install -y docker docker-compose
+            ;;
+            
+        *)
+            echo "❌ Automatic Docker installation not supported for $DISTRO"
+            echo ""
+            echo "📋 Manual installation required:"
+            echo "1. Visit: https://docs.docker.com/engine/install/"
+            echo "2. Select your distribution"
+            echo "3. Follow the installation guide"
+            echo "4. Re-run this script after Docker is installed"
+            echo ""
+            return 1
+            ;;
+    esac
+    
+    # Start and enable Docker service
+    echo "🔧 Starting Docker service..."
+    if command -v systemctl &> /dev/null; then
+        sudo systemctl start docker
+        sudo systemctl enable docker
+    elif command -v service &> /dev/null; then
+        sudo service docker start
+    elif command -v rc-service &> /dev/null; then
+        sudo rc-service docker start
+        sudo rc-update add docker default
+    fi
+    
+    # Add current user to docker group
+    echo "👤 Adding user $(whoami) to docker group..."
+    sudo usermod -aG docker $(whoami)
+    
+    # Verify installation
+    echo "🔍 Verifying Docker installation..."
+    sleep 2  # Give Docker service time to start
+    
+    if docker --version &>/dev/null; then
+        docker_version=$(docker --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        echo "✅ Docker $docker_version installed successfully"
+        
+        echo ""
+        echo "⚠️  IMPORTANT: You need to log out and back in (or restart) for docker group changes to take effect."
+        echo "After logging back in, you should be able to run 'docker ps' without sudo."
+        echo ""
+        return 0
+    else
+        echo "❌ Docker installation verification failed"
+        return 1
+    fi
 }
 
 # Function to install Python 3.8+ on different distributions
@@ -493,13 +747,75 @@ elif [ $python_check_result -eq 2 ]; then
     fi
 fi
 
-# Check for Docker
-if ! command -v docker &> /dev/null; then
-    echo "❌ [ERROR] 'docker' could not be found."
-    echo "Please install Docker Desktop from https://www.docker.com/products/docker-desktop and try again."
-    exit 1
+# Main Docker check
+docker_check_result=0
+check_docker_version || docker_check_result=$?
+
+if [ $docker_check_result -eq 1 ]; then
+    # Docker not found at all
+    if [ "$UPGRADE_DOCKER" = true ]; then
+        echo "🚀 Installing Docker as requested..."
+        if install_docker; then
+            echo "✅ Docker installation completed"
+            echo "🔄 Re-checking Docker version..."
+            
+            # Re-run the Docker version check
+            if check_docker_version; then
+                echo "✅ Docker installation verification successful"
+            else
+                echo "❌ Docker installation verification failed"
+                echo ""
+                echo "📋 Troubleshooting steps:"
+                echo "1. Log out and back in to refresh group membership"
+                echo "2. Restart your system if needed"
+                echo "3. Check: docker --version"
+                echo "4. Re-run: ./setup"
+                echo ""
+                exit 1
+            fi
+        else
+            echo "❌ Failed to install Docker"
+            exit 1
+        fi
+    else
+        echo "Please install Docker Desktop from https://www.docker.com/products/docker-desktop and try again."
+        echo ""
+        echo "📋 Options to resolve this:"
+        echo "1. Re-run with --upgrade-docker to automatically install Docker CE"
+        echo "2. Install Docker manually from the official website"
+        echo "3. Use your distribution's package manager"
+        echo ""
+        exit 1
+    fi
+elif [ $docker_check_result -eq 2 ]; then
+    # Docker found but version might be old
+    if [ "$UPGRADE_DOCKER" = true ]; then
+        echo "🚀 Upgrading Docker as requested..."
+        if install_docker; then
+            echo "✅ Docker upgrade completed"
+            echo "🔄 Re-checking Docker version..."
+            
+            # Re-run the Docker version check
+            if check_docker_version; then
+                echo "✅ Docker upgrade verification successful"
+            else
+                echo "❌ Docker upgrade verification failed"
+                exit 1
+            fi
+        else
+            echo "❌ Failed to upgrade Docker"
+            exit 1
+        fi
+    else
+        echo ""
+        echo "📋 Docker version information:"
+        echo "• Minimum supported: Docker 17.06"
+        echo "• Recommended: Docker 20.10+"
+        echo "• To upgrade: ./setup --upgrade-docker"
+        echo ""
+        echo "Continuing with current Docker version..."
+    fi
 fi
-echo "✅ Docker found."
 
 # Check for Git
 if ! command -v git &> /dev/null; then

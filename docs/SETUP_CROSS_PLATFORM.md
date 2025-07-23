@@ -18,6 +18,12 @@ The `./setup` script is designed to automatically install and configure all depe
 # Install/upgrade Python 3.8+ if needed (fixes Poetry compatibility issues)
 ./setup --upgrade-python
 
+# Install/upgrade Docker CE to latest version
+./setup --upgrade-docker
+
+# Combined upgrades for older systems
+./setup --upgrade-python --upgrade-docker
+
 # Show help and options
 ./setup --help
 ```
@@ -27,6 +33,7 @@ The `./setup` script is designed to automatically install and configure all depe
 | Option | Description | Use Case |
 |--------|-------------|----------|
 | `--upgrade-python` | Install/upgrade to Python 3.8+ if needed | Fix Poetry 2.x compatibility on older systems |
+| `--upgrade-docker` | Install/upgrade Docker CE to latest version | Modern Docker with Compose V2 support |
 | `--skip-mkcert` | Skip mkcert installation | Manual SSL cert management or reverse proxy |
 | `--help`, `-h` | Show usage information | Get help and see all options |
 
@@ -60,9 +67,9 @@ The `./setup` script is designed to automatically install and configure all depe
 The script automatically installs and configures:
 
 1. **Python 3.8+** (required for Poetry 2.x)
-2. **Git** (version control)
-3. **curl** (HTTP client)
-4. **Docker** (detection only - manual installation required)
+2. **Docker CE 17.06+** (container runtime with Compose V2)
+3. **Git** (version control)
+4. **curl** (HTTP client)
 5. **mkcert** (SSL certificate generation)
 6. **Poetry** (Python dependency management)
 
@@ -90,6 +97,31 @@ The script will:
 3. **Configure** system alternatives to use the new version
 4. **Verify** that `python3 --version` shows the upgraded version
 5. **Install** Poetry successfully with the compatible Python
+
+## Docker Version Compatibility
+
+### The Docker Version Problem
+
+Many systems have older Docker versions or lack Docker entirely. Modern easy-opal requires:
+- **Docker CE 17.06+** (minimum)
+- **Docker CE 20.10+** (recommended)
+- **Docker Compose V2** (preferred over V1)
+
+### Solution: Automatic Docker Installation
+
+Use the `--upgrade-docker` flag to automatically install Docker CE:
+
+```bash
+./setup --upgrade-docker
+```
+
+The script will:
+1. **Remove** old Docker packages (docker.io, docker-engine)
+2. **Add** Docker's official repository
+3. **Install** Docker CE with Compose V2 plugin
+4. **Configure** Docker service to start automatically
+5. **Add** your user to the docker group
+6. **Verify** installation and version compatibility
 
 ## Installation Methods by Distribution
 
@@ -182,6 +214,56 @@ sudo swupd bundle-add python3-basic python-basic-dev
 ```bash
 # Via Homebrew
 brew install python@3.11
+```
+
+## Docker Installation Methods by Distribution
+
+### Ubuntu/Debian
+```bash
+# Official Docker CE repository
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+```
+
+### Fedora
+```bash
+# Official Docker CE repository
+sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+sudo dnf install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+```
+
+### CentOS/RHEL/AlmaLinux/Rocky (8+)
+```bash
+# Official Docker CE repository (requires RHEL 8+)
+sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo dnf install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+```
+
+### Arch/Manjaro
+```bash
+# Community repository
+sudo pacman -S docker docker-compose
+```
+
+### openSUSE/SLES
+```bash
+# Official Docker CE repository
+sudo zypper addrepo https://download.docker.com/linux/sles/docker-ce.repo
+sudo zypper install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+```
+
+### Alpine Linux
+```bash
+# Community repository
+sudo apk add docker docker-compose
+```
+
+### Void Linux
+```bash
+# Native packages
+sudo xbps-install docker docker-compose
 ```
 
 ## Multi-Tier Fallback System
@@ -345,6 +427,53 @@ ERROR: Could not find a version that satisfies the requirement poetry==2.1.3
 **Solution:**
 ```bash
 ./setup --upgrade-python
+```
+
+#### 2. Docker Installation Fails
+**Symptom:**
+```
+Docker CE requires CentOS/RHEL 8+. Your version: 7.9
+```
+
+**Solution:**
+```bash
+# For older systems, manual installation required
+# Visit: https://docs.docker.com/engine/install/
+```
+
+#### 3. Docker Permission Denied
+**Symptom:**
+```bash
+docker: permission denied while trying to connect to the Docker daemon socket
+```
+
+**Solutions:**
+```bash
+# Method 1: Log out and back in (refresh group membership)
+exit
+# Start new terminal session
+
+# Method 2: Check docker group membership
+groups $USER
+
+# Method 3: Manually add to docker group (if not done automatically)
+sudo usermod -aG docker $USER
+```
+
+#### 4. Docker Service Not Running
+**Symptom:**
+```
+Cannot connect to the Docker daemon at unix:///var/run/docker.sock
+```
+
+**Solutions:**
+```bash
+# Start Docker service
+sudo systemctl start docker
+sudo systemctl enable docker
+
+# Check service status
+sudo systemctl status docker
 ```
 
 #### 2. Python Upgrade Not Taking Effect

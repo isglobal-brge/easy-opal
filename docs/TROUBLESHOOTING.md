@@ -6,6 +6,7 @@
 > 
 > **Quick fixes:**
 > - Python/Poetry issues: `./setup --upgrade-python`
+> - Docker issues: `./setup --upgrade-docker`
 > - SSL certificate issues: `./setup --skip-mkcert`
 
 ## Docker Detection Issues
