@@ -3,17 +3,27 @@
 
 # Parse command line arguments
 SKIP_MKCERT=false
+UPGRADE_PYTHON=false
 for arg in "$@"; do
     case $arg in
         --skip-mkcert)
             SKIP_MKCERT=true
             shift
             ;;
+        --upgrade-python)
+            UPGRADE_PYTHON=true
+            shift
+            ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
             echo "Options:"
-            echo "  --skip-mkcert    Skip mkcert installation (for manual SSL cert management)"
-            echo "  --help, -h       Show this help message"
+            echo "  --skip-mkcert      Skip mkcert installation (for manual SSL cert management)"
+            echo "  --upgrade-python   Install/upgrade to Python 3.8+ if needed"
+            echo "  --help, -h         Show this help message"
+            echo ""
+            echo "Python Version Requirements:"
+            echo "  - Poetry 2.x requires Python 3.8 or higher"
+            echo "  - If you have Python 3.6/3.7, use --upgrade-python to install a newer version"
             exit 0
             ;;
         *)
@@ -28,13 +38,223 @@ done
 
 echo "--- Checking Prerequisites ---"
 
-# Check for Python 3
-if ! command -v python3 &> /dev/null; then
-    echo "❌ [ERROR] 'python3' could not be found."
-    echo "Please install Python 3 from https://www.python.org/downloads/ and try again."
+# Check for Python 3 and version
+check_python_version() {
+    if ! command -v python3 &> /dev/null; then
+        echo "❌ [ERROR] 'python3' could not be found."
+        echo "Please install Python 3 from https://www.python.org/downloads/ and try again."
+        return 1
+    fi
+
+    # Get Python version
+    python_version=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+    echo "🐍 Python version: $python_version"
+    
+    # Check if version meets Poetry 2.x requirements (Python 3.8+)
+    if python3 -c "import sys; exit(0 if sys.version_info >= (3, 8) else 1)" 2>/dev/null; then
+        echo "✅ Python version is compatible with Poetry 2.x"
+        return 0
+    else
+        echo "⚠️  Python $python_version detected. Poetry 2.x requires Python 3.8+"
+        return 2
+    fi
+}
+
+# Function to install Python 3.8+ on different distributions
+install_newer_python() {
+    echo "🔄 Installing Python 3.8+ for your system..."
+    OS="$(uname -s)"
+    
+    if [ "$OS" = "Darwin" ]; then
+        echo "Installing Python via Homebrew..."
+        if command -v brew &> /dev/null; then
+            brew install python@3.11
+            echo "✅ Python 3.11 installed via Homebrew"
+            echo "You may need to update your PATH or use 'python3.11' directly"
+        else
+            echo "❌ Homebrew not found. Please install it first or install Python manually."
+            return 1
+        fi
+        return 0
+    fi
+    
+    # Detect Linux distribution
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        DISTRO=$ID
+    else
+        DISTRO="unknown"
+    fi
+    
+    case "$DISTRO" in
+        ubuntu|debian)
+            echo "Installing Python 3.11 via deadsnakes PPA..."
+            sudo apt-get update
+            sudo apt-get install -y software-properties-common
+            sudo add-apt-repository ppa:deadsnakes/ppa -y
+            sudo apt-get update
+            sudo apt-get install -y python3.11 python3.11-venv python3.11-pip python3.11-dev
+            
+            # Create symlink if python3 points to old version
+            if ! python3.11 --version &> /dev/null; then
+                echo "❌ Failed to install Python 3.11"
+                return 1
+            fi
+            
+            echo "✅ Python 3.11 installed successfully"
+            echo "Creating symlink to use python3.11 as default python3..."
+            sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+            ;;
+            
+        fedora)
+            echo "Installing Python 3.11 via dnf..."
+            sudo dnf install -y python3.11 python3.11-pip python3.11-devel
+            
+            if ! python3.11 --version &> /dev/null; then
+                echo "❌ Failed to install Python 3.11"
+                return 1
+            fi
+            
+            echo "✅ Python 3.11 installed successfully"
+            echo "Creating symlink to use python3.11 as default python3..."
+            sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+            ;;
+            
+        centos|rhel|rocky|almalinux)
+            echo "Installing Python 3.11 on RHEL/CentOS-based system..."
+            
+            # Try different methods based on version
+            if command -v dnf &> /dev/null; then
+                # Try EPEL and PowerTools first
+                sudo dnf install -y epel-release
+                sudo dnf config-manager --set-enabled powertools 2>/dev/null || sudo dnf config-manager --set-enabled PowerTools 2>/dev/null || true
+                
+                if sudo dnf install -y python3.11 python3.11-pip python3.11-devel 2>/dev/null; then
+                    echo "✅ Python 3.11 installed via dnf"
+                else
+                    echo "Trying alternative installation method..."
+                    install_python_from_source "3.11.7"
+                fi
+            elif command -v yum &> /dev/null; then
+                # For older CentOS versions, try Software Collections or compile from source
+                if yum list available | grep -q python3; then
+                    sudo yum install -y centos-release-scl
+                    sudo yum install -y rh-python38 rh-python38-python-pip rh-python38-python-devel
+                    echo "✅ Python 3.8 installed via Software Collections"
+                    echo "To use: scl enable rh-python38 bash"
+                    echo "Or add to your .bashrc: source /opt/rh/rh-python38/enable"
+                else
+                    echo "Installing Python from source..."
+                    install_python_from_source "3.11.7"
+                fi
+            fi
+            ;;
+            
+        opensuse*|sles)
+            echo "Installing Python 3.11 via zypper..."
+            sudo zypper install -y python311 python311-pip python311-devel
+            
+            if ! python3.11 --version &> /dev/null; then
+                echo "❌ Failed to install Python 3.11"
+                return 1
+            fi
+            
+            echo "✅ Python 3.11 installed successfully"
+            ;;
+            
+        arch|manjaro)
+            echo "Installing Python 3.11 via pacman..."
+            sudo pacman -S --noconfirm python
+            echo "✅ Python 3.11 installed successfully"
+            ;;
+            
+        *)
+            echo "Unknown distribution: $DISTRO"
+            echo "Attempting to install Python from source..."
+            install_python_from_source "3.11.7"
+            ;;
+    esac
+}
+
+# Function to install Python from source (fallback method)
+install_python_from_source() {
+    local python_version=${1:-"3.11.7"}
+    echo "📦 Installing Python $python_version from source..."
+    
+    # Install build dependencies
+    if command -v apt-get &> /dev/null; then
+        sudo apt-get update
+        sudo apt-get install -y build-essential zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev
+    elif command -v dnf &> /dev/null; then
+        sudo dnf groupinstall -y "Development Tools"
+        sudo dnf install -y zlib-devel bzip2-devel openssl-devel ncurses-devel sqlite-devel readline-devel tk-devel gdbm-devel db4-devel libpcap-devel xz-devel expat-devel
+    elif command -v yum &> /dev/null; then
+        sudo yum groupinstall -y "Development Tools"
+        sudo yum install -y zlib-devel bzip2-devel openssl-devel ncurses-devel sqlite-devel readline-devel tk-devel gdbm-devel db4-devel libpcap-devel xz-devel expat-devel
+    fi
+    
+    # Download and compile Python
+    cd /tmp
+    wget https://www.python.org/ftp/python/$python_version/Python-$python_version.tgz
+    tar xzf Python-$python_version.tgz
+    cd Python-$python_version
+    
+    ./configure --enable-optimizations --prefix=/usr/local
+    make -j $(nproc)
+    sudo make altinstall
+    
+    # Create symlinks
+    sudo ln -sf /usr/local/bin/python3.11 /usr/local/bin/python3
+    sudo ln -sf /usr/local/bin/pip3.11 /usr/local/bin/pip3
+    
+    # Update PATH
+    echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.bashrc
+    
+    # Clean up
+    cd /
+    rm -rf /tmp/Python-$python_version*
+    
+    echo "✅ Python $python_version installed from source in /usr/local"
+    echo "You may need to restart your shell or run: source ~/.bashrc"
+}
+
+# Main Python check
+python_check_result=0
+check_python_version || python_check_result=$?
+
+if [ $python_check_result -eq 1 ]; then
+    # Python not found at all
     exit 1
+elif [ $python_check_result -eq 2 ]; then
+    # Python found but version too old
+    if [ "$UPGRADE_PYTHON" = true ]; then
+        echo "🚀 Upgrading Python as requested..."
+        if install_newer_python; then
+            echo "✅ Python upgrade completed"
+            echo "🔄 Re-checking Python version..."
+            check_python_version || {
+                echo "❌ Python upgrade verification failed"
+                echo "You may need to restart your shell or update your PATH"
+                echo "Try: source ~/.bashrc or open a new terminal"
+                exit 1
+            }
+        else
+            echo "❌ Failed to upgrade Python"
+            exit 1
+        fi
+    else
+        echo ""
+        echo "📋 Options to resolve this:"
+        echo "1. Re-run with --upgrade-python to automatically install Python 3.8+"
+        echo "2. Install Python 3.8+ manually:"
+        echo "   • Ubuntu/Debian: sudo apt install python3.11"
+        echo "   • CentOS/RHEL: sudo dnf install python3.11"
+        echo "   • Or compile from source"
+        echo "3. Use pyenv to manage Python versions"
+        echo ""
+        exit 1
+    fi
 fi
-echo "✅ Python 3 found."
 
 # Check for Docker
 if ! command -v docker &> /dev/null; then
@@ -314,24 +534,144 @@ fi
 
 # 2. Install Poetry and dependencies
 echo -e "\n--- Setting up Python Environment with Poetry ---"
-if ! command -v poetry &> /dev/null; then
+
+# Function to install Poetry with error handling
+install_poetry() {
+    local attempt=1
+    local max_attempts=3
+    
+    while [ $attempt -le $max_attempts ]; do
+        echo "📦 Installing Poetry (attempt $attempt/$max_attempts)..."
+        
+        if curl -sSL https://install.python-poetry.org | python3 -; then
+            # Add poetry to the path for the current session
+            export PATH="$HOME/.local/bin:$PATH"
+            
+            # Verify installation
+            if command -v poetry &> /dev/null; then
+                echo "✅ Poetry installed successfully"
+                return 0
+            else
+                echo "⚠️  Poetry installed but not found in PATH"
+                echo "Checking common installation locations..."
+                
+                # Try common Poetry installation paths
+                for poetry_path in "$HOME/.local/bin/poetry" "$HOME/.poetry/bin/poetry" "/usr/local/bin/poetry"; do
+                    if [ -x "$poetry_path" ]; then
+                        echo "Found Poetry at: $poetry_path"
+                        export PATH="$(dirname "$poetry_path"):$PATH"
+                        return 0
+                    fi
+                done
+            fi
+        else
+            echo "❌ Poetry installation failed on attempt $attempt"
+        fi
+        
+        if [ $attempt -lt $max_attempts ]; then
+            echo "🔄 Retrying in 2 seconds..."
+            sleep 2
+        fi
+        
+        attempt=$((attempt + 1))
+    done
+    
+    return 1
+}
+
+# Check if Poetry is already installed
+if command -v poetry &> /dev/null; then
+    echo "✅ Poetry is already installed"
+    poetry_version=$(poetry --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    if [ -n "$poetry_version" ]; then
+        echo "🐍 Poetry version: $poetry_version"
+    fi
+else
     echo "Poetry not found. Installing Poetry..."
-    curl -sSL https://install.python-poetry.org | python3 -
-    # Add poetry to the path for the current session
-    export PATH="$HOME/.local/bin:$PATH"
-    echo "Poetry installed. You may need to restart your shell for the PATH change to take effect globally."
+    
+    if ! install_poetry; then
+        echo ""
+        echo "❌ [ERROR] Failed to install Poetry after multiple attempts"
+        echo ""
+        echo "📋 Manual installation options:"
+        echo "1. Install via pip (if you have Python 3.8+):"
+        echo "   pip3 install --user poetry"
+        echo ""
+        echo "2. Install via official installer (retry):"
+        echo "   curl -sSL https://install.python-poetry.org | python3 -"
+        echo ""
+        echo "3. Install via system package manager:"
+        echo "   • Ubuntu/Debian: sudo apt install python3-poetry"
+        echo "   • Fedora: sudo dnf install poetry"
+        echo ""
+        echo "4. If using older Python, upgrade first:"
+        echo "   ./setup --upgrade-python"
+        echo ""
+        exit 1
+    fi
 fi
 
 echo "✅ Poetry is available."
 
+# Install project dependencies with better error handling  
 echo "Installing project dependencies with Poetry... (This may take a moment)"
-# The poetry.toml file now handles all virtualenv configuration.
-# We just need to run install within an isolated subshell to avoid
-# conflicts with any externally activated virtual environments.
-(
-  unset VIRTUAL_ENV
-  poetry install --no-ansi
-)
+
+# Function to install dependencies with retry logic
+install_dependencies() {
+    local attempt=1
+    local max_attempts=2
+    
+    while [ $attempt -le $max_attempts ]; do
+        echo "📦 Installing dependencies (attempt $attempt/$max_attempts)..."
+        
+        # The poetry.toml file now handles all virtualenv configuration.
+        # We just need to run install within an isolated subshell to avoid
+        # conflicts with any externally activated virtual environments.
+        if (
+            unset VIRTUAL_ENV
+            poetry install --no-ansi
+        ); then
+            echo "✅ Dependencies installed successfully"
+            return 0
+        else
+            echo "❌ Dependency installation failed on attempt $attempt"
+            
+            if [ $attempt -lt $max_attempts ]; then
+                echo "🔄 Retrying..."
+                # Clear poetry cache and retry
+                poetry cache clear --all . 2>/dev/null || true
+                sleep 2
+            fi
+        fi
+        
+        attempt=$((attempt + 1))
+    done
+    
+    return 1
+}
+
+if ! install_dependencies; then
+    echo ""
+    echo "❌ [ERROR] Failed to install project dependencies"
+    echo ""
+    echo "📋 This might be due to:"
+    echo "1. Python version incompatibility (requires Python 3.8+)"
+    echo "   Solution: Run './setup --upgrade-python'"
+    echo ""
+    echo "2. Network connectivity issues"
+    echo "   Solution: Check internet connection and retry"
+    echo ""
+    echo "3. Poetry cache corruption"
+    echo "   Solution: Run 'poetry cache clear --all .' and retry"
+    echo ""
+    echo "4. Missing system dependencies"
+    echo "   Solution: Install build tools for your distribution"
+    echo ""
+    echo "💡 To retry just the dependency installation:"
+    echo "   poetry install --no-ansi"
+    echo ""
+    exit 1
+fi
 
 # Make the wrapper script executable
 chmod +x easy-opal
