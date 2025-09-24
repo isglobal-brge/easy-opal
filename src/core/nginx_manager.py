@@ -16,8 +16,8 @@ def generate_nginx_config():
     config = load_config()
     strategy = config.get("ssl", {}).get("strategy")
 
-    if strategy == "reverse-proxy":
-        console.print("[dim]Skipping NGINX configuration (reverse-proxy mode).[/dim]")
+    if strategy == "none":
+        console.print("[dim]Skipping NGINX configuration (none/reverse-proxy mode).[/dim]")
         # Clean up any old config file that might be present
         output_path = NGINX_CONF_DIR / "nginx.conf"
         if output_path.exists():
@@ -36,7 +36,7 @@ def generate_nginx_config():
         template = f.read()
     
     # Only substitute server names if we are using an HTTPS template
-    if strategy != "reverse-proxy":
+    if strategy != "none":
         server_names = " ".join(config["hosts"])
         template = template.replace("${OPAL_HOSTNAME}", server_names)
 

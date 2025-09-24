@@ -334,9 +334,9 @@ class ContainerDiagnostics:
         if "mongo" in running_containers and "opal" in running_containers:
             planned_tests.append(("opal", "mongo", 27017, "Opal → MongoDB (database connection)"))
         
-        # Test reverse proxy connectivity (only if nginx exists - not in reverse-proxy mode)
+        # Test reverse proxy connectivity (only if nginx exists - not in none mode)
         ssl_strategy = self.config.get('ssl', {}).get('strategy', 'self-signed')
-        if ssl_strategy != 'reverse-proxy' and "nginx" in running_containers and "opal" in running_containers:
+        if ssl_strategy != 'none' and "nginx" in running_containers and "opal" in running_containers:
             planned_tests.append(("nginx", "opal", 8080, "Nginx → Opal (reverse proxy)"))
         
         # Test Rock container connectivity (all Rock containers)
@@ -470,11 +470,11 @@ class ContainerDiagnostics:
         # Test ports based on SSL strategy
         ssl_strategy = self.config.get('ssl', {}).get('strategy', 'self-signed')
         
-        if ssl_strategy == 'reverse-proxy':
+        if ssl_strategy == 'none':
             # In reverse-proxy mode, Opal is exposed directly on HTTP port
             http_port = self.config.get('opal_http_port', 8080)
             
-            http_test = self._test_port_accessibility('localhost', http_port, f'Opal HTTP (reverse-proxy mode, port {http_port})')
+            http_test = self._test_port_accessibility('localhost', http_port, f'Opal HTTP (none/reverse-proxy mode, port {http_port})')
             port_tests.append(http_test)
         else:
             # In standard mode, test the HTTPS port handled by nginx
@@ -548,7 +548,7 @@ class ContainerDiagnostics:
         
         ssl_strategy = self.config.get('ssl', {}).get('strategy', 'self-signed')
         
-        if ssl_strategy == 'reverse-proxy':
+        if ssl_strategy == 'none':
             test.status = "skip"
             test.message = "SSL handled by external reverse proxy (not managed by easy-opal)"
             return test
@@ -653,11 +653,11 @@ class ContainerDiagnostics:
         # Build URLs based on SSL strategy
         hosts = self.config.get('hosts', ['localhost'])
         
-        if ssl_strategy == 'reverse-proxy':
-            # In reverse-proxy mode, test HTTP directly to Opal container
+        if ssl_strategy == 'none':
+            # In none mode, test HTTP directly to Opal container
             port = self.config.get('opal_http_port', 8080)
             
-            # In reverse-proxy mode, hosts list is empty, so test localhost directly
+            # In none mode, hosts list is empty, so test localhost directly
             if not hosts:
                 hosts = ['localhost']
             
@@ -665,7 +665,7 @@ class ContainerDiagnostics:
                 base_url = f"http://{host}:{port}"
                 
                 # Test Opal login page - this confirms the service is working
-                opal_test = self._test_http_endpoint(f"{base_url}/", f"Opal web interface (HTTP, reverse-proxy mode)")
+                opal_test = self._test_http_endpoint(f"{base_url}/", f"Opal web interface (HTTP, none/reverse-proxy mode)")
                 endpoint_tests.append(opal_test)
                 
                 # Test Opal API endpoint - 404 with RESTEASY message indicates Opal is responding correctly
@@ -1034,7 +1034,7 @@ class ContainerDiagnostics:
             ports_to_test = []
             
             ssl_strategy = self.config.get('ssl', {}).get('strategy', 'self-signed')
-            if ssl_strategy == 'reverse-proxy':
+            if ssl_strategy == 'none':
                 ports_to_test.append(self.config.get('opal_http_port', 8080))
             else:
                 ports_to_test.append(self.config.get('opal_external_port', 443))
@@ -1103,7 +1103,7 @@ class ContainerDiagnostics:
         ssl_strategy = self.config.get('ssl', {}).get('strategy', 'self-signed')
         hosts = self.config.get('hosts', ['localhost'])
         
-        if ssl_strategy == 'reverse-proxy':
+        if ssl_strategy == 'none':
             if not hosts:
                 hosts = ['localhost']
             port = self.config.get('opal_http_port', 8080)
@@ -1406,12 +1406,12 @@ class ContainerDiagnostics:
         if failed_tests:
             self._display_troubleshooting_guide(failed_tests)
         
-        # Display reverse-proxy reminder if applicable
+        # Display none/reverse-proxy reminder if applicable
         if self.config and self.config.get('ssl', {}).get('strategy') == 'reverse-proxy':
             console.print("\n" + "="*70)
             console.print("[bold yellow]⚠️  IMPORTANT REMINDER![/bold yellow]")
             console.print("="*70)
-            console.print("[yellow]💡 You are using reverse-proxy mode (HTTP only).[/yellow]")
+            console.print("[yellow]💡 You are using 'none' mode (HTTP only).[/yellow]")
             console.print("[bold red]🔒 Opal requires HTTPS for security in production![/bold red]")
             console.print("\n[dim]Next steps:[/dim]")
             console.print("   • Configure your external HTTPS proxy (nginx, Apache, Cloudflare, etc.)")
@@ -1505,9 +1505,9 @@ class ContainerDiagnostics:
             "service-endpoints": [
                 "Wait a few minutes for services to fully start up",
                 "Check container logs for startup errors",
-                "Verify the nginx configuration is correct (if not using reverse-proxy mode)",
-                "For reverse-proxy mode: ensure your external HTTPS proxy is configured and running",
-                "For reverse-proxy mode: verify your proxy forwards correctly to the HTTP port",
+                "Verify the nginx configuration is correct (if not using 'none' mode)",
+                "For 'none' mode: ensure your external HTTPS proxy is configured and running (if using one)",
+                "For 'none' mode: verify your proxy forwards correctly to the HTTP port (if using one)",
                 "Test individual container endpoints directly",
                 "Remember: Opal requires HTTPS for security in production"
             ],

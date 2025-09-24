@@ -1265,19 +1265,23 @@ install_mkcert_binary() {
 # 1. Install mkcert (unless skipped)
 if [[ "$SKIP_MKCERT" == true ]]; then
     echo "⏭️  Skipping mkcert installation as requested."
-    echo "   Note: You'll need to provide your own SSL certificates or use reverse-proxy mode."
+    echo "   Note: You'll need to provide your own SSL certificates or use 'none' strategy."
 else
     if ! install_mkcert; then
         echo ""
-        echo "❌ [ERROR] Failed to install mkcert automatically."
+        echo "⚠️  [WARNING] Failed to install mkcert automatically."
         echo ""
-        echo "📋 Manual installation options:"
-        echo "1. Download from: https://github.com/FiloSottile/mkcert/releases"
-        echo "2. Use package manager specific to your distribution"
-        echo "3. Build from source: https://github.com/FiloSottile/mkcert"
-        echo "4. Re-run this script with --skip-mkcert and provide your own certificates"
+        echo "📋 You can still use easy-opal with these options:"
+        echo "1. Use 'none' strategy (default) - No SSL, for local development or reverse proxy"
+        echo "2. Use 'manual' strategy - Provide your own certificates"
+        echo "3. Use 'letsencrypt' strategy - For public domains"
         echo ""
-        exit 1
+        echo "If you want self-signed certificates, you can install mkcert manually:"
+        echo "  • Download from: https://github.com/FiloSottile/mkcert/releases"
+        echo "  • Or use your package manager"
+        echo ""
+        echo "Continuing setup without mkcert..."
+        SKIP_MKCERT=true
     fi
 fi
 
@@ -1431,9 +1435,9 @@ if [[ "$SKIP_MKCERT" == true ]]; then
     echo ""
     echo "⚠️  IMPORTANT: mkcert was skipped during setup."
     echo "   When running './easy-opal setup', choose one of these SSL strategies:"
+    echo "   • 'none' (default) - No SSL, for local development or reverse proxy"
     echo "   • 'manual' - Provide your own certificate files"
     echo "   • 'letsencrypt' - Use Let's Encrypt (requires public domain)"
-    echo "   • 'reverse-proxy' - Use HTTP with external reverse proxy"
     echo ""
 fi
 

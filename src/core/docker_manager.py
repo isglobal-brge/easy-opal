@@ -98,7 +98,7 @@ def generate_compose_file():
     # --- Configure based on SSL Strategy ---
     strategy = config.get("ssl", {}).get("strategy")
     
-    if strategy == "reverse-proxy":
+    if strategy == "none":
         # Expose the Opal service directly, without our own NGINX.
         http_port = config.get("opal_http_port", 8080)
         compose_data["services"]["opal"]["ports"] = [f"{http_port}:8080"]
@@ -107,7 +107,7 @@ def generate_compose_file():
         if "nginx" in compose_data["services"]: del compose_data["services"]["nginx"]
         if "certbot" in compose_data["services"]: del compose_data["services"]["certbot"]
         
-        console.print("[dim]NGINX and Certbot services removed (reverse-proxy mode).[/dim]")
+        console.print("[dim]NGINX and Certbot services removed (none/reverse-proxy mode).[/dim]")
         opal_env["OPAL_PROXY_SECURE"] = "false"
         opal_env["OPAL_PROXY_HOST"] = "localhost"
         opal_env["OPAL_PROXY_PORT"] = str(http_port)

@@ -85,9 +85,9 @@ def get_local_ip():
 @click.option('--stack-name', help='The name of the Docker stack.')
 @click.option('--host', 'hosts', multiple=True, help='A hostname or IP for Opal. Can be used multiple times.')
 @click.option('--port', help='The external HTTPS port for Opal.', type=int)
-@click.option('--http-port', help="The local HTTP port to expose when using 'reverse-proxy' strategy.", type=int)
+@click.option('--http-port', help="The local HTTP port to expose when using 'none' strategy.", type=int)
 @click.option('--password', help='The Opal administrator password.')
-@click.option("--ssl-strategy", type=click.Choice(['self-signed', 'letsencrypt', 'manual', 'reverse-proxy']), help="The SSL strategy to use. See [SSL Configuration Guide](./docs/SSL_CONFIGURATION.md) for details.")
+@click.option("--ssl-strategy", type=click.Choice(['self-signed', 'letsencrypt', 'manual', 'none']), help="The SSL strategy to use. See [SSL Configuration Guide](./docs/SSL_CONFIGURATION.md) for details.")
 @click.option("--ssl-cert-path", help="Path to your certificate file (for 'manual' strategy).")
 @click.option("--ssl-key-path", help="Path to your private key file (for 'manual' strategy).")
 @click.option("--ssl-email", help="Email for Let's Encrypt renewal notices (for 'letsencrypt' strategy).")
@@ -188,12 +188,12 @@ def setup(
         console.print("\n[cyan]2. SSL Certificate Configuration[/cyan]")
         strategy = Prompt.ask(
             "Choose an SSL certificate strategy",
-            choices=["self-signed", "letsencrypt", "manual", "reverse-proxy"],
-            default="self-signed"
+            choices=["none", "self-signed", "letsencrypt", "manual"],
+            default="none"
         )
         config["ssl"]["strategy"] = strategy
 
-        if strategy == "reverse-proxy":
+        if strategy == "none":
             while True:
                 port_val = IntPrompt.ask("Enter the local HTTP port to expose Opal on", default=config["opal_http_port"])
                 if not is_port_in_use(port_val):
@@ -295,7 +295,7 @@ def setup(
             config["ssl"]["key_path"] = ssl_key_path
         elif ssl_strategy == "letsencrypt":
             config["ssl"]["le_email"] = ssl_email
-        elif ssl_strategy == "reverse-proxy":
+        elif ssl_strategy == "none":
             if http_port: config["opal_http_port"] = http_port
             # No hosts needed for this strategy
             config["hosts"] = []
@@ -421,7 +421,7 @@ def setup(
         
         # Show access information
         strategy = config.get("ssl", {}).get("strategy")
-        if strategy == "reverse-proxy":
+        if strategy == "none":
             console.print(f"\n[bold green]🎉 Opal is now accessible at: http://localhost:{config['opal_http_port']}[/bold green]")
         else:
             hosts = config.get("hosts", ["localhost"])
