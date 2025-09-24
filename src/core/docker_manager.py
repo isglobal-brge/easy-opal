@@ -263,22 +263,39 @@ def get_docker_version():
 
 
 def pull_docker_image(image_name: str):
-    """Pulls a Docker image and returns True on success, False on failure."""
-    console.print(f"[cyan]Attempting to pull image: {image_name}...[/cyan]")
+    """Pulls a Docker image with real-time Docker output and returns True on success, False on failure."""
+    console.print(f"\n[bold cyan]🐳 Pulling Docker image: {image_name}[/bold cyan]")
+    console.print("[dim]" + "="*60 + "[/dim]")
+    
     try:
-        # Use the older, more compatible 'docker pull' syntax that works across all Docker versions
-        # instead of 'docker image pull' which was introduced in Docker 1.13
-        result = subprocess.run(["docker", "pull", image_name], check=False, capture_output=True, text=True)
+        # Run docker pull with real-time output, no capture
+        process = subprocess.Popen(
+            ["docker", "pull", image_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True
+        )
         
-        if result.returncode != 0:
-            console.print(f"[bold red]Failed to pull image '{image_name}'.[/bold red]")
-            # Show docker's error message for more context
-            console.print(f"[dim]{result.stderr}[/dim]")
+        # Stream output in real-time
+        for line in iter(process.stdout.readline, ''):
+            if line.strip():
+                # Print Docker's output directly without Rich formatting to preserve original formatting
+                print(line.rstrip())
+        
+        # Wait for process to complete
+        return_code = process.wait()
+        
+        console.print("[dim]" + "="*60 + "[/dim]")
+        
+        if return_code != 0:
+            console.print(f"[bold red]❌ Failed to pull image '{image_name}' (exit code: {return_code})[/bold red]")
             return False
-            
+        else:
+            console.print(f"[bold green]✅ Successfully pulled image: {image_name}[/bold green]\n")
+            return True
+             
     except Exception as e:
-        console.print(f"[bold red]An unexpected error occurred while pulling the image: {e}[/bold red]")
+        console.print(f"[bold red]❌ An unexpected error occurred while pulling the image: {e}[/bold red]")
         return False
-        
-    console.print(f"[green]Successfully pulled image: {image_name}[/green]")
-    return True 
