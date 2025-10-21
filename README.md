@@ -117,6 +117,7 @@ The main command to configure or re-configure a stack. Running it without flags 
 -   `--ssl-cert-path TEXT`: Path to your certificate file (for 'manual' strategy).
 -   `--ssl-key-path TEXT`: Path to your private key file (for 'manual' strategy).
 -   `--ssl-email TEXT`: Email for Let's Encrypt renewal notices.
+-   `--database TEXT`: Add a database instance. Format: `type:name:port:user:password` (e.g., `postgres:maindb:5432:opal:pass123`). Can be used multiple times to add multiple database instances, including multiple instances of the same type.
 -   `--yes`: Bypasses all interactive prompts. Essential for scripting.
 -   `--reset-containers`: Non-interactively stops and removes Docker containers.
 -   `--reset-volumes`: Non-interactively deletes Docker volumes (all application data).
@@ -127,6 +128,7 @@ The main command to configure or re-configure a stack. Running it without flags 
 **Example (Non-Interactive):**
 
 ```bash
+# Basic setup
 ./easy-opal setup \
   --stack-name new-stack \
   --host localhost \
@@ -135,6 +137,18 @@ The main command to configure or re-configure a stack. Running it without flags 
   --ssl-strategy "self-signed" \
   --yes \
   --reset-containers
+
+# Setup with multiple database instances
+./easy-opal setup \
+  --stack-name data-stack \
+  --host localhost \
+  --port 8443 \
+  --password "mypass" \
+  --ssl-strategy "self-signed" \
+  --database postgres:analytics:5432:opal:pgpass1 \
+  --database postgres:warehouse:5433:admin:pgpass2 \
+  --database mysql:app:3306:opal:mysqlpass \
+  --yes
 ```
 
 ---
@@ -264,6 +278,88 @@ Manage the Rock server profiles in your stack.
 ### `update`
 
 -   `./easy-opal update`: Checks for and pulls the latest version of the tool from Git.
+
+---
+
+## Database Configuration
+
+Easy-Opal supports deploying additional database containers alongside the default MongoDB instance, which serves as the primary metadata store for Opal. You can configure multiple database instances of different types (PostgreSQL, MySQL, MariaDB) or even multiple instances of the same type.
+
+### Supported Database Types
+
+-   **PostgreSQL** (port 5432 by default)
+-   **MySQL** (port 3306 by default)
+-   **MariaDB** (port 3307 by default)
+-   **MongoDB** (always enabled as the primary metadata database)
+
+### Interactive Configuration
+
+When running `./easy-opal setup` interactively, you'll be prompted to add database instances:
+
+1. Select the database type (postgres, mysql, mariadb)
+2. Provide a unique instance name (e.g., `analytics`, `warehouse-1`)
+3. Configure the port (automatically suggests a free port)
+4. Set the username (defaults to `opal`)
+5. Provide a password
+6. Repeat to add more instances or select `done` to continue
+
+### Non-Interactive Configuration
+
+Use the `--database` flag with the format: `type:name:port:user:password`
+
+**Examples:**
+
+```bash
+# Single PostgreSQL instance
+./easy-opal setup --database postgres:maindb:5432:opal:mypassword --yes
+
+# Multiple instances of different types
+./easy-opal setup \
+  --database postgres:analytics:5432:opal:pass1 \
+  --database mysql:app:3306:opal:pass2 \
+  --database mariadb:archive:3307:opal:pass3 \
+  --yes
+
+# Multiple instances of the same type
+./easy-opal setup \
+  --database postgres:analytics:5432:opal:pass1 \
+  --database postgres:warehouse:5433:admin:pass2 \
+  --database postgres:staging:5434:developer:pass3 \
+  --yes
+```
+
+### Environment Variables
+
+Each database instance is automatically configured in Opal's environment using uppercase variable names based on the instance name:
+
+For a database named `analytics`:
+-   `ANALYTICS_HOST`: Service hostname
+-   `ANALYTICS_PORT`: Internal port
+-   `ANALYTICS_DATABASE`: Database name
+-   `ANALYTICS_USER`: Username
+-   `ANALYTICS_PASSWORD`: Password
+
+For a database named `warehouse-1`:
+-   `WAREHOUSE_1_HOST`: Service hostname (hyphens converted to underscores)
+-   `WAREHOUSE_1_PORT`: Internal port
+-   `WAREHOUSE_1_DATABASE`: Database name
+-   `WAREHOUSE_1_USER`: Username
+-   `WAREHOUSE_1_PASSWORD`: Password
+
+### Port Selection
+
+-   The wizard automatically detects and suggests free ports
+-   Default ports: PostgreSQL (5432), MySQL (3306), MariaDB (3307)
+-   For multiple instances of the same type, the wizard will suggest incremental ports (5432, 5433, 5434, etc.)
+
+### Data Persistence
+
+Each database instance gets its own named Docker volume:
+-   `{instance-name}_data`: Stores all database data
+
+These volumes persist across container restarts and can be managed with standard Docker volume commands.
+
+---
 
 ## Data Persistence: Volumes vs. Local Directories
 

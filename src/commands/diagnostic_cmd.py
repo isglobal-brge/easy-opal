@@ -335,18 +335,13 @@ class ContainerDiagnostics:
             planned_tests.append(("opal", "mongo", 27017, "Opal → MongoDB (metadata database)"))
         
         # Test additional database connectivity
-        databases = self.config.get('databases', {})
-        if databases.get("postgres", {}).get("enabled") and "postgres" in running_containers:
-            # PostgreSQL doesn't need container-to-container test, just port accessibility
-            pass  # Will be tested in external port tests
-        
-        if databases.get("mysql", {}).get("enabled") and "mysql" in running_containers:
-            # MySQL doesn't need container-to-container test, just port accessibility
-            pass  # Will be tested in external port tests
-            
-        if databases.get("mariadb", {}).get("enabled") and "mariadb" in running_containers:
-            # MariaDB doesn't need container-to-container test, just port accessibility
-            pass  # Will be tested in external port tests
+        database_instances = self.config.get('databases', [])
+        for db in database_instances:
+            db_name = db.get('name')
+            if db_name in running_containers:
+                # Database instances don't need container-to-container test, 
+                # just external port accessibility which is tested separately
+                pass  # Will be tested in external port tests
         
         # Test reverse proxy connectivity (only if nginx exists - not in none mode)
         ssl_strategy = self.config.get('ssl', {}).get('strategy', 'self-signed')
@@ -502,19 +497,26 @@ class ContainerDiagnostics:
                 port_tests.append(http80_test)
         
         # Test additional database ports
-        databases = self.config.get('databases', {})
+        database_instances = self.config.get('databases', [])
         
-        if databases.get("postgres", {}).get("enabled"):
-            pg_test = self._test_port_accessibility('localhost', 5432, 'PostgreSQL database (port 5432)')
-            port_tests.append(pg_test)
-        
-        if databases.get("mysql", {}).get("enabled"):
-            mysql_test = self._test_port_accessibility('localhost', 3306, 'MySQL database (port 3306)')
-            port_tests.append(mysql_test)
-        
-        if databases.get("mariadb", {}).get("enabled"):
-            maria_test = self._test_port_accessibility('localhost', 3307, 'MariaDB database (port 3307)')
-            port_tests.append(maria_test)
+        for db in database_instances:
+            db_name = db.get('name')
+            db_type = db.get('type')
+            db_port = db.get('port')
+            
+            # Get display name for database type
+            db_type_display = {
+                'postgres': 'PostgreSQL',
+                'mysql': 'MySQL',
+                'mariadb': 'MariaDB'
+            }.get(db_type, db_type.title())
+            
+            test_result = self._test_port_accessibility(
+                'localhost', 
+                db_port, 
+                f'{db_type_display} database "{db_name}" (port {db_port})'
+            )
+            port_tests.append(test_result)
         
         test.details['tests'] = port_tests
         
@@ -1069,13 +1071,11 @@ class ContainerDiagnostics:
                 ports_to_test.append(self.config.get('opal_external_port', 443))
             
             # Add database ports to test
-            databases = self.config.get('databases', {})
-            if databases.get("postgres", {}).get("enabled"):
-                ports_to_test.append(5432)
-            if databases.get("mysql", {}).get("enabled"):
-                ports_to_test.append(3306)
-            if databases.get("mariadb", {}).get("enabled"):
-                ports_to_test.append(3307)
+            database_instances = self.config.get('databases', [])
+            for db in database_instances:
+                db_port = db.get('port')
+                if db_port:
+                    ports_to_test.append(db_port)
             
             blocked_ports = []
             allowed_ports = []

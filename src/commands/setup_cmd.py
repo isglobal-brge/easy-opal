@@ -68,6 +68,24 @@ def is_port_in_use(port: int) -> bool:
             # This exception (e.g., EADDRINUSE) means the port is taken
             return True
 
+def find_free_port(start_port: int, reserved_ports: list = None) -> int:
+    """Find the next available port starting from start_port."""
+    if reserved_ports is None:
+        reserved_ports = []
+    
+    port = start_port
+    max_attempts = 100
+    attempts = 0
+    
+    while attempts < max_attempts:
+        if port not in reserved_ports and not is_port_in_use(port):
+            return port
+        port += 1
+        attempts += 1
+    
+    # If we can't find a free port, return the start port and let it fail later
+    return start_port
+
 def get_local_ip():
     """Tries to get the local IP address of the machine."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -81,6 +99,116 @@ def get_local_ip():
         s.close()
     return IP
 
+def get_database_defaults(db_type: str) -> dict:
+    """Get default configuration for a database type."""
+    defaults = {
+        'postgres': {
+            'default_port': 5432,
+            'default_user': 'opal',
+            'default_db_name': 'opaldata',
+            'display_name': 'PostgreSQL'
+        },
+        'mysql': {
+            'default_port': 3306,
+            'default_user': 'opal',
+            'default_db_name': 'opaldata',
+            'display_name': 'MySQL'
+        },
+        'mariadb': {
+            'default_port': 3307,
+            'default_user': 'opal',
+            'default_db_name': 'opaldata',
+            'display_name': 'MariaDB'
+        }
+    }
+    return defaults.get(db_type, {})
+
+def generate_database_name(db_type: str, existing_names: list) -> str:
+    """Generate a unique database instance name."""
+    base_name = db_type
+    counter = 1
+    name = base_name
+    
+    while name in existing_names:
+        name = f"{base_name}-{counter}"
+        counter += 1
+    
+    return name
+
+def configure_database_interactive(db_type: str, existing_databases: list, used_ports: list) -> dict:
+    """Interactively configure a single database instance."""
+    defaults = get_database_defaults(db_type)
+    existing_names = [db['name'] for db in existing_databases]
+    
+    console.print(f"\n[bold cyan]Configuring {defaults['display_name']} instance[/bold cyan]")
+    
+    # Instance name
+    suggested_name = generate_database_name(db_type, existing_names)
+    name = Prompt.ask(f"  Instance name", default=suggested_name)
+    
+    # Validate unique name
+    while name in existing_names:
+        console.print(f"  [bold red]Name '{name}' already in use. Choose another.[/bold red]")
+        name = Prompt.ask(f"  Instance name")
+    
+    # Port configuration
+    default_port = find_free_port(defaults['default_port'], used_ports)
+    port_str = Prompt.ask(f"  Port", default=str(default_port))
+    port = int(port_str)
+    
+    # Username
+    user = Prompt.ask(f"  Username", default=defaults['default_user'])
+    
+    # Password with validation
+    while True:
+        password = Prompt.ask(f"  Password", password=True)
+        if password.strip():
+            break
+        console.print("  [bold red]Password cannot be empty. Please try again.[/bold red]")
+    
+    return {
+        'type': db_type,
+        'name': name,
+        'port': port,
+        'user': user,
+        'password': password,
+        'database': defaults['default_db_name']
+    }
+
+def parse_database_spec(spec: str) -> dict:
+    """Parse a database specification string: type:name:port:user:password"""
+    parts = spec.split(':')
+    
+    if len(parts) != 5:
+        raise ValueError(f"Invalid database spec format: '{spec}'. Expected: type:name:port:user:password")
+    
+    db_type, name, port_str, user, password = parts
+    
+    if db_type not in ['postgres', 'mysql', 'mariadb']:
+        raise ValueError(f"Invalid database type: '{db_type}'. Must be one of: postgres, mysql, mariadb")
+    
+    try:
+        port = int(port_str)
+    except ValueError:
+        raise ValueError(f"Invalid port number: '{port_str}'")
+    
+    if not name.strip():
+        raise ValueError("Database name cannot be empty")
+    
+    if not password.strip():
+        raise ValueError("Database password cannot be empty")
+    
+    defaults = get_database_defaults(db_type)
+    
+    return {
+        'type': db_type,
+        'name': name,
+        'port': port,
+        'user': user,
+        'password': password,
+        'database': defaults['default_db_name']
+    }
+
 @click.command()
 @click.option('--stack-name', help='The name of the Docker stack.')
 @click.option('--host', 'hosts', multiple=True, help='A hostname or IP for Opal. Can be used multiple times.')
@@ -91,9 +219,7 @@ def get_local_ip():
 @click.option("--ssl-cert-path", help="Path to your certificate file (for 'manual' strategy).")
 @click.option("--ssl-key-path", help="Path to your private key file (for 'manual' strategy).")
 @click.option("--ssl-email", help="Email for Let's Encrypt renewal notices (for 'letsencrypt' strategy).")
-@click.option('--extra-databases', multiple=True, type=click.Choice(['postgres', 'mysql', 'mariadb']), help='Additional database containers to deploy alongside MongoDB. Can be specified multiple times.')
-@click.option('--postgres-password', help='Password for PostgreSQL (if postgres is selected).')
-@click.option('--mysql-password', help='Password for MySQL/MariaDB (if mysql/mariadb is selected).')
+@click.option('--database', 'databases_spec', multiple=True, help='Add database instance. Format: type:name:port:user:password (e.g., postgres:maindb:5432:opal:pass123). Can be used multiple times.')
 @click.option("--yes", is_flag=True, help="Bypass confirmation prompts for a non-interactive setup.")
 @click.option('--reset-containers', is_flag=True, help='[Non-interactive] Stop and remove Docker containers and networks.')
 @click.option('--reset-volumes', is_flag=True, help='[Non-interactive] Delete Docker volumes (application data).')
@@ -102,8 +228,7 @@ def get_local_ip():
 @click.option('--reset-secrets', is_flag=True, help='[Non-interactive] Reset secrets file during setup.')
 def setup(
     stack_name, hosts, port, http_port, password, ssl_strategy, ssl_cert_path,
-    ssl_key_path, ssl_email, extra_databases, postgres_password, mysql_password,
-    yes, reset_containers, reset_volumes,
+    ssl_key_path, ssl_email, databases_spec, yes, reset_containers, reset_volumes,
     reset_configs, reset_certs, reset_secrets
 ):
     """Guides you through the initial setup or reconfigures the environment."""
@@ -275,32 +400,47 @@ def setup(
                 config["hosts"] = [domain]
         
         # --- Database Configuration ---
-        config["databases"] = {
-            "mongodb": {"enabled": True}  # MongoDB is always enabled
-        }
+        # MongoDB is always enabled as the primary metadata store
+        config["mongodb"] = {"enabled": True}
+        
+        # Additional database instances (PostgreSQL, MySQL, MariaDB)
+        config["databases"] = []
         
         if is_interactive:
-            console.print("\n[cyan]Database Configuration[/cyan]")
+            console.print("\n[cyan]3. Database Configuration[/cyan]")
             console.print("MongoDB is the primary database for Opal metadata (always enabled).")
             
-            if Confirm.ask("[cyan]Would you like to deploy additional database containers for data sources?[/cyan]", default=False):
-                console.print("\nSelect additional databases to deploy as data sources:")
-                console.print("These databases can be connected to Opal for data storage and analysis.")
+            if Confirm.ask("\n[cyan]Would you like to deploy additional database containers for data sources?[/cyan]", default=False):
+                console.print("\n[bold]Available database types:[/bold]")
+                console.print("  • PostgreSQL")
+                console.print("  • MySQL")
+                console.print("  • MariaDB")
+                console.print("\nYou can add multiple instances of the same type if needed.")
                 
-                if Confirm.ask("  • Deploy PostgreSQL container?", default=False):
-                    config["databases"]["postgres"] = {"enabled": True}
-                    pg_pass = Prompt.ask("    PostgreSQL password", default="postgres_password", password=True)
-                    config["databases"]["postgres"]["password"] = pg_pass
+                used_ports = []
                 
-                if Confirm.ask("  • Deploy MySQL container?", default=False):
-                    config["databases"]["mysql"] = {"enabled": True}
-                    mysql_pass = Prompt.ask("    MySQL root password", default="mysql_password", password=True)
-                    config["databases"]["mysql"]["password"] = mysql_pass
-                
-                if Confirm.ask("  • Deploy MariaDB container?", default=False):
-                    config["databases"]["mariadb"] = {"enabled": True}
-                    maria_pass = Prompt.ask("    MariaDB root password", default="mariadb_password", password=True)
-                    config["databases"]["mariadb"]["password"] = maria_pass
+                while True:
+                    console.print("\n[cyan]Select a database type to add:[/cyan]")
+                    db_type = Prompt.ask(
+                        "  Database type",
+                        choices=['postgres', 'mysql', 'mariadb', 'done'],
+                        default='done'
+                    )
+                    
+                    if db_type == 'done':
+                        break
+                    
+                    db_config = configure_database_interactive(db_type, config["databases"], used_ports)
+                    config["databases"].append(db_config)
+                    used_ports.append(db_config['port'])
+                    
+                    console.print(f"[green]✓ Added {db_config['name']} on port {db_config['port']}[/green]")
+                    
+                    if config["databases"]:
+                        console.print("\n[bold]Currently configured databases:[/bold]")
+                        for db in config["databases"]:
+                            defaults = get_database_defaults(db['type'])
+                            console.print(f"  • {defaults['display_name']}: {db['name']} (port {db['port']})")
 
     else: # Non-interactive mode
         console.print("[cyan]Running non-interactive setup...[/cyan]")
@@ -333,27 +473,19 @@ def setup(
             config["hosts"] = []
         
         # Database configuration for non-interactive mode
-        config["databases"] = {
-            "mongodb": {"enabled": True}  # MongoDB is always enabled
-        }
+        config["mongodb"] = {"enabled": True}  # MongoDB is always enabled
+        config["databases"] = []
         
-        if extra_databases:
-            for db in extra_databases:
-                config["databases"][db] = {"enabled": True}
-                if db == "postgres" and postgres_password:
-                    config["databases"]["postgres"]["password"] = postgres_password
-                elif db == "mysql" and mysql_password:
-                    config["databases"]["mysql"]["password"] = mysql_password
-                elif db == "mariadb" and mysql_password:
-                    config["databases"]["mariadb"]["password"] = mysql_password
-                else:
-                    # Set default passwords if not provided
-                    if db == "postgres":
-                        config["databases"]["postgres"]["password"] = "postgres_password"
-                    elif db == "mysql":
-                        config["databases"]["mysql"]["password"] = "mysql_password"
-                    elif db == "mariadb":
-                        config["databases"]["mariadb"]["password"] = "mariadb_password"
+        # Handle --database format
+        if databases_spec:
+            try:
+                for spec in databases_spec:
+                    db_config = parse_database_spec(spec)
+                    config["databases"].append(db_config)
+                    console.print(f"[green]Added {db_config['name']} ({db_config['type']}) on port {db_config['port']}[/green]")
+            except ValueError as e:
+                console.print(f"[bold red]Error: {e}[/bold red]")
+                return
 
     # --- Password Handling ---
     if is_interactive:
