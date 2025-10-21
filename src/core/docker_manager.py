@@ -94,6 +94,97 @@ def generate_compose_file():
     opal_env = compose_data["services"]["opal"]["environment"]
     rock_hosts = [f"http://{p['name']}:8085" for p in config.get("profiles", [])]
     opal_env["ROCK_HOSTS"] = ",".join(rock_hosts)
+    
+    # --- Add Additional Database Services ---
+    databases = config.get("databases", {"mongodb": {"enabled": True}})
+    
+    # Configure Opal environment variables for additional databases
+    
+    # PostgreSQL
+    if databases.get("postgres", {}).get("enabled"):
+        pg_password = databases["postgres"].get("password", "postgres_password")
+        compose_data["services"]["postgres"] = {
+            "image": "postgres:15",
+            "container_name": f"{config['stack_name']}-postgres",
+            "restart": "always",
+            "environment": {
+                "POSTGRES_USER": "opal",
+                "POSTGRES_PASSWORD": pg_password,
+                "POSTGRES_DB": "opal_data"
+            },
+            "volumes": ["postgres_data:/var/lib/postgresql/data"],
+            "ports": ["5432:5432"]
+        }
+        if "volumes" not in compose_data:
+            compose_data["volumes"] = {}
+        compose_data["volumes"]["postgres_data"] = None
+        
+        # Configure Opal to connect to PostgreSQL
+        opal_env["POSTGRESDATA_HOST"] = "postgres"
+        opal_env["POSTGRESDATA_PORT"] = "5432"
+        opal_env["POSTGRESDATA_DATABASE"] = "opal_data"
+        opal_env["POSTGRESDATA_USER"] = "opal"
+        opal_env["POSTGRESDATA_PASSWORD"] = pg_password
+        
+        console.print("[green]PostgreSQL database service added and configured in Opal.[/green]")
+    
+    # MySQL
+    if databases.get("mysql", {}).get("enabled"):
+        mysql_password = databases["mysql"].get("password", "mysql_password")
+        compose_data["services"]["mysql"] = {
+            "image": "mysql:8",
+            "container_name": f"{config['stack_name']}-mysql",
+            "restart": "always",
+            "environment": {
+                "MYSQL_ROOT_PASSWORD": mysql_password,
+                "MYSQL_DATABASE": "opal_data",
+                "MYSQL_USER": "opal",
+                "MYSQL_PASSWORD": mysql_password
+            },
+            "volumes": ["mysql_data:/var/lib/mysql"],
+            "ports": ["3306:3306"]
+        }
+        if "volumes" not in compose_data:
+            compose_data["volumes"] = {}
+        compose_data["volumes"]["mysql_data"] = None
+        
+        # Configure Opal to connect to MySQL
+        opal_env["MYSQLDATA_HOST"] = "mysql"
+        opal_env["MYSQLDATA_PORT"] = "3306"
+        opal_env["MYSQLDATA_DATABASE"] = "opal_data"
+        opal_env["MYSQLDATA_USER"] = "opal"
+        opal_env["MYSQLDATA_PASSWORD"] = mysql_password
+        
+        console.print("[green]MySQL database service added and configured in Opal.[/green]")
+    
+    # MariaDB
+    if databases.get("mariadb", {}).get("enabled"):
+        mariadb_password = databases["mariadb"].get("password", "mariadb_password")
+        compose_data["services"]["mariadb"] = {
+            "image": "mariadb:11",
+            "container_name": f"{config['stack_name']}-mariadb",
+            "restart": "always",
+            "environment": {
+                "MARIADB_ROOT_PASSWORD": mariadb_password,
+                "MARIADB_DATABASE": "opal_data",
+                "MARIADB_USER": "opal",
+                "MARIADB_PASSWORD": mariadb_password
+            },
+            "volumes": ["mariadb_data:/var/lib/mysql"],
+            "ports": ["3307:3306"]  # Different port to avoid conflict with MySQL
+        }
+        if "volumes" not in compose_data:
+            compose_data["volumes"] = {}
+        compose_data["volumes"]["mariadb_data"] = None
+        
+        # Configure Opal to connect to MariaDB
+        opal_env["MARIADBDATA_HOST"] = "mariadb"
+        opal_env["MARIADBDATA_PORT"] = "3306"  # Internal port, not the mapped 3307
+        opal_env["MARIADBDATA_DATABASE"] = "opal_data"
+        opal_env["MARIADBDATA_USER"] = "opal"
+        opal_env["MARIADBDATA_PASSWORD"] = mariadb_password
+        
+        console.print("[green]MariaDB database service added and configured in Opal.[/green]")
 
     # --- Configure based on SSL Strategy ---
     strategy = config.get("ssl", {}).get("strategy")

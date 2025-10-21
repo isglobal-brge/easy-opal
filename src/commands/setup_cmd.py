@@ -91,6 +91,9 @@ def get_local_ip():
 @click.option("--ssl-cert-path", help="Path to your certificate file (for 'manual' strategy).")
 @click.option("--ssl-key-path", help="Path to your private key file (for 'manual' strategy).")
 @click.option("--ssl-email", help="Email for Let's Encrypt renewal notices (for 'letsencrypt' strategy).")
+@click.option('--extra-databases', multiple=True, type=click.Choice(['postgres', 'mysql', 'mariadb']), help='Additional database containers to deploy alongside MongoDB. Can be specified multiple times.')
+@click.option('--postgres-password', help='Password for PostgreSQL (if postgres is selected).')
+@click.option('--mysql-password', help='Password for MySQL/MariaDB (if mysql/mariadb is selected).')
 @click.option("--yes", is_flag=True, help="Bypass confirmation prompts for a non-interactive setup.")
 @click.option('--reset-containers', is_flag=True, help='[Non-interactive] Stop and remove Docker containers and networks.')
 @click.option('--reset-volumes', is_flag=True, help='[Non-interactive] Delete Docker volumes (application data).')
@@ -99,7 +102,8 @@ def get_local_ip():
 @click.option('--reset-secrets', is_flag=True, help='[Non-interactive] Reset secrets file during setup.')
 def setup(
     stack_name, hosts, port, http_port, password, ssl_strategy, ssl_cert_path,
-    ssl_key_path, ssl_email, yes, reset_containers, reset_volumes,
+    ssl_key_path, ssl_email, extra_databases, postgres_password, mysql_password,
+    yes, reset_containers, reset_volumes,
     reset_configs, reset_certs, reset_secrets
 ):
     """Guides you through the initial setup or reconfigures the environment."""
@@ -269,6 +273,34 @@ def setup(
                     return
                 config["ssl"]["le_email"] = email
                 config["hosts"] = [domain]
+        
+        # --- Database Configuration ---
+        config["databases"] = {
+            "mongodb": {"enabled": True}  # MongoDB is always enabled
+        }
+        
+        if is_interactive:
+            console.print("\n[cyan]Database Configuration[/cyan]")
+            console.print("MongoDB is the primary database for Opal metadata (always enabled).")
+            
+            if Confirm.ask("[cyan]Would you like to deploy additional database containers for data sources?[/cyan]", default=False):
+                console.print("\nSelect additional databases to deploy as data sources:")
+                console.print("These databases can be connected to Opal for data storage and analysis.")
+                
+                if Confirm.ask("  • Deploy PostgreSQL container?", default=False):
+                    config["databases"]["postgres"] = {"enabled": True}
+                    pg_pass = Prompt.ask("    PostgreSQL password", default="postgres_password", password=True)
+                    config["databases"]["postgres"]["password"] = pg_pass
+                
+                if Confirm.ask("  • Deploy MySQL container?", default=False):
+                    config["databases"]["mysql"] = {"enabled": True}
+                    mysql_pass = Prompt.ask("    MySQL root password", default="mysql_password", password=True)
+                    config["databases"]["mysql"]["password"] = mysql_pass
+                
+                if Confirm.ask("  • Deploy MariaDB container?", default=False):
+                    config["databases"]["mariadb"] = {"enabled": True}
+                    maria_pass = Prompt.ask("    MariaDB root password", default="mariadb_password", password=True)
+                    config["databases"]["mariadb"]["password"] = maria_pass
 
     else: # Non-interactive mode
         console.print("[cyan]Running non-interactive setup...[/cyan]")
@@ -299,6 +331,29 @@ def setup(
             if http_port: config["opal_http_port"] = http_port
             # No hosts needed for this strategy
             config["hosts"] = []
+        
+        # Database configuration for non-interactive mode
+        config["databases"] = {
+            "mongodb": {"enabled": True}  # MongoDB is always enabled
+        }
+        
+        if extra_databases:
+            for db in extra_databases:
+                config["databases"][db] = {"enabled": True}
+                if db == "postgres" and postgres_password:
+                    config["databases"]["postgres"]["password"] = postgres_password
+                elif db == "mysql" and mysql_password:
+                    config["databases"]["mysql"]["password"] = mysql_password
+                elif db == "mariadb" and mysql_password:
+                    config["databases"]["mariadb"]["password"] = mysql_password
+                else:
+                    # Set default passwords if not provided
+                    if db == "postgres":
+                        config["databases"]["postgres"]["password"] = "postgres_password"
+                    elif db == "mysql":
+                        config["databases"]["mysql"]["password"] = "mysql_password"
+                    elif db == "mariadb":
+                        config["databases"]["mariadb"]["password"] = "mariadb_password"
 
     # --- Password Handling ---
     if is_interactive:

@@ -330,9 +330,23 @@ class ContainerDiagnostics:
         # Define the connectivity tests to perform
         planned_tests = []
         
-        # Test database connectivity (always critical)
+        # Test database connectivity (MongoDB is always critical)
         if "mongo" in running_containers and "opal" in running_containers:
-            planned_tests.append(("opal", "mongo", 27017, "Opal → MongoDB (database connection)"))
+            planned_tests.append(("opal", "mongo", 27017, "Opal → MongoDB (metadata database)"))
+        
+        # Test additional database connectivity
+        databases = self.config.get('databases', {})
+        if databases.get("postgres", {}).get("enabled") and "postgres" in running_containers:
+            # PostgreSQL doesn't need container-to-container test, just port accessibility
+            pass  # Will be tested in external port tests
+        
+        if databases.get("mysql", {}).get("enabled") and "mysql" in running_containers:
+            # MySQL doesn't need container-to-container test, just port accessibility
+            pass  # Will be tested in external port tests
+            
+        if databases.get("mariadb", {}).get("enabled") and "mariadb" in running_containers:
+            # MariaDB doesn't need container-to-container test, just port accessibility
+            pass  # Will be tested in external port tests
         
         # Test reverse proxy connectivity (only if nginx exists - not in none mode)
         ssl_strategy = self.config.get('ssl', {}).get('strategy', 'self-signed')
@@ -486,6 +500,21 @@ class ContainerDiagnostics:
             if ssl_strategy == 'letsencrypt':
                 http80_test = self._test_port_accessibility('localhost', 80, 'HTTP port 80 (Let\'s Encrypt challenges)')
                 port_tests.append(http80_test)
+        
+        # Test additional database ports
+        databases = self.config.get('databases', {})
+        
+        if databases.get("postgres", {}).get("enabled"):
+            pg_test = self._test_port_accessibility('localhost', 5432, 'PostgreSQL database (port 5432)')
+            port_tests.append(pg_test)
+        
+        if databases.get("mysql", {}).get("enabled"):
+            mysql_test = self._test_port_accessibility('localhost', 3306, 'MySQL database (port 3306)')
+            port_tests.append(mysql_test)
+        
+        if databases.get("mariadb", {}).get("enabled"):
+            maria_test = self._test_port_accessibility('localhost', 3307, 'MariaDB database (port 3307)')
+            port_tests.append(maria_test)
         
         test.details['tests'] = port_tests
         
@@ -1038,6 +1067,15 @@ class ContainerDiagnostics:
                 ports_to_test.append(self.config.get('opal_http_port', 8080))
             else:
                 ports_to_test.append(self.config.get('opal_external_port', 443))
+            
+            # Add database ports to test
+            databases = self.config.get('databases', {})
+            if databases.get("postgres", {}).get("enabled"):
+                ports_to_test.append(5432)
+            if databases.get("mysql", {}).get("enabled"):
+                ports_to_test.append(3306)
+            if databases.get("mariadb", {}).get("enabled"):
+                ports_to_test.append(3307)
             
             blocked_ports = []
             allowed_ports = []
