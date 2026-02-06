@@ -45,7 +45,17 @@ def regenerate():
 
 
 def run_certbot():
-    """Runs the certbot container to renew certificates."""
+    """Runs the certbot container to renew certificates and reloads nginx."""
     console.print("[cyan]Attempting to renew Let's Encrypt certificate...[/cyan]")
     command = ["run", "--rm", "certbot", "renew"]
-    run_docker_compose(command) 
+    success = run_docker_compose(command)
+
+    if success:
+        # Reload nginx to pick up any renewed certificates
+        console.print("[cyan]Reloading NGINX to apply renewed certificates...[/cyan]")
+        reload_command = ["exec", "nginx", "nginx", "-s", "reload"]
+        reload_success = run_docker_compose(reload_command)
+        if reload_success:
+            console.print("[green]NGINX reloaded successfully.[/green]")
+        else:
+            console.print("[yellow]Could not reload NGINX. You may need to restart the stack manually.[/yellow]") 

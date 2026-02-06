@@ -563,18 +563,24 @@ def setup(
     elif strategy == "letsencrypt":
         domain_args = " ".join([f"-d {d}" for d in config["hosts"]])
         email_arg = f"--email {config['ssl']['le_email']}"
-        
+
         console.print("[cyan]Requesting Let's Encrypt certificate...[/cyan]")
-        
-        # We need to start nginx temporarily to solve the HTTP-01 challenge
+
+        # Step 1: Generate HTTP-only NGINX config for ACME challenge
+        # This is necessary because NGINX won't start if SSL certificates don't exist
+        console.print("[cyan]Preparing NGINX for ACME HTTP-01 challenge...[/cyan]")
+        generate_nginx_config(acme_only=True)
+
+        # Step 2: Start nginx with HTTP-only config to handle ACME challenge
         run_docker_compose(["up", "-d", "nginx"])
-        
+
+        # Step 3: Run certbot to obtain certificates
         command = f"run --rm certbot certonly --webroot --webroot-path /var/www/certbot {email_arg} {domain_args} --agree-tos --no-eff-email --force-renewal"
         cert_success = run_docker_compose(command.split())
-        
+
         # Always stop the temporary nginx container
         run_docker_compose(["stop", "nginx"])
-        
+
         if not cert_success:
             console.print("[bold red]Failed to obtain Let's Encrypt certificate. Please check the logs above.[/bold red]")
             console.print("[yellow]Your configuration has been saved, but you will need to run the setup again to retry certificate generation.[/yellow]")
@@ -582,11 +588,15 @@ def setup(
 
         le_cert_path = f"/etc/letsencrypt/live/{config['hosts'][0]}/fullchain.pem"
         le_key_path = f"/etc/letsencrypt/live/{config['hosts'][0]}/privkey.pem"
-        
+
         config["ssl"]["cert_path"] = le_cert_path
         config["ssl"]["key_path"] = le_key_path
         save_config(config)
         console.print("[green]Let's Encrypt certificate obtained successfully.[/green]")
+
+        # Step 4: Regenerate full HTTPS NGINX config now that certificates exist
+        console.print("[cyan]Generating full HTTPS NGINX configuration...[/cyan]")
+        generate_nginx_config(acme_only=False)
 
     console.print("\n[bold green]Setup is complete![/bold green]")
     console.print("You can now start the Opal stack by running:")

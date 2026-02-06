@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # This script is a wrapper that executes the easy-opal command inside the
-# project's poetry-managed virtual environment. It allows users to run the
-# tool without having to manually activate the virtual environment.
+# project's virtual environment. It allows users to run the tool without
+# having to manually activate the virtual environment.
 
 # Ensure the script is run from the project root directory
 cd "$(dirname "$0")"

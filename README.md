@@ -51,7 +51,7 @@ For the smoothest experience, we recommend:
 
 ## Installation
 
-The installation process is streamlined using Poetry for robust dependency and environment management.
+The installation process is streamlined using [uv](https://docs.astral.sh/uv/) for fast and robust dependency and environment management.
 
 1.  **Clone the repository**:
     ```bash
@@ -83,15 +83,15 @@ The installation process is streamlined using Poetry for robust dependency and e
     The setup script automatically handles:
     - ✅ **System dependency detection** (Python 3.8+, Docker CE 17.06+, Git, curl)
     - ✅ **Cross-platform installation** (Ubuntu, CentOS, Fedora, Arch, Alpine, Gentoo, FreeBSD, macOS, etc.)
-    - ✅ **Python version upgrades** (fixes Poetry 2.x compatibility)
+    - ✅ **Python version upgrades** (ensures Python 3.8+ compatibility)
     - ✅ **Docker CE installation** (with Compose V2 support)
-    - ✅ **Poetry installation** with virtual environment setup
+    - ✅ **uv installation** with virtual environment setup
     - ✅ **SSL certificates** via mkcert (skip with `--skip-mkcert`)
     - ✅ **Multi-tier fallback system** for maximum compatibility
     
     > 📋 **Setup Options:**
     > - `./setup` - Standard installation
-    > - `./setup --upgrade-python` - Install Python 3.8+ if needed (fixes Poetry issues)
+    > - `./setup --upgrade-python` - Install Python 3.8+ if needed
     > - `./setup --upgrade-docker` - Install Docker CE with Compose V2
     > - `./setup --skip-mkcert` - Skip certificate tools (for reverse proxy setups)
     > - `./setup --upgrade-python --upgrade-docker` - Complete system upgrade

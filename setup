@@ -28,7 +28,7 @@ for arg in "$@"; do
             echo "  --help, -h         Show this help message"
             echo ""
             echo "System Requirements:"
-            echo "  - Poetry 2.x requires Python 3.8 or higher"
+            echo "  - Python 3.8 or higher"
             echo "  - Docker 17.06+ required (20.10+ recommended)"
             echo "  - If you have older versions, use --upgrade-python or --upgrade-docker"
             exit 0
@@ -141,17 +141,29 @@ check_python_version() {
     # Debug: show which python3 we're using
     python3_path=$(which python3 2>/dev/null || echo "unknown")
     echo "🔍 Using python3 from: $python3_path"
-    
+
     # Get Python version
     python_version=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "unknown")
     echo "🐍 Python version: $python_version"
-    
-    # Check if version meets Poetry 2.x requirements (Python 3.8+)
+
+    # Check if version meets requirements (Python 3.8+)
     if python3 -c "import sys; exit(0 if sys.version_info >= (3, 8) else 1)" 2>/dev/null; then
-        echo "✅ Python version is compatible with Poetry 2.x"
+        echo "✅ Python version is compatible"
+
+        # On macOS, check if Python can create venvs (CommandLineTools Python has limitations)
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            if ! python3 -c "import venv; venv.EnvBuilder().create('/tmp/venv_test_$$')" 2>/dev/null; then
+                rm -rf "/tmp/venv_test_$$" 2>/dev/null
+                echo "⚠️  Warning: Your Python cannot create virtual environments"
+                echo "   This is common with macOS CommandLineTools Python."
+                return 3
+            fi
+            rm -rf "/tmp/venv_test_$$" 2>/dev/null
+        fi
+
         return 0
     else
-        echo "⚠️  Python $python_version detected. Poetry 2.x requires Python 3.8+"
+        echo "⚠️  Python $python_version detected. Python 3.8+ is required"
         return 2
     fi
 }
@@ -220,11 +232,11 @@ check_docker_version() {
     # Debug: show which docker we're using
     docker_path=$(which docker 2>/dev/null || echo "unknown")
     echo "🔍 Using docker from: $docker_path"
-    
+
     # Get Docker version
     docker_version=$(docker --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
     echo "🐳 Docker version: $docker_version"
-    
+
     # Check if version meets requirements (Docker 17.06+)
     if docker version --format '{{.Server.Version}}' &>/dev/null; then
         server_version=$(docker version --format '{{.Server.Version}}' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
@@ -240,7 +252,7 @@ check_docker_version() {
             fi
         fi
     fi
-    
+
     # Fallback version check
     if [[ -n "$docker_version" ]]; then
         major=$(echo "$docker_version" | cut -d. -f1)
@@ -253,9 +265,158 @@ check_docker_version() {
             return 2
         fi
     fi
-    
+
     echo "⚠️  Could not determine Docker version. Proceeding with caution."
     return 2
+}
+
+# Function to check Docker Compose availability
+check_docker_compose() {
+    echo ""
+    echo "--- Checking Docker Compose ---"
+
+    # Check for Docker Compose V2 (docker compose)
+    if docker compose version &>/dev/null; then
+        compose_version=$(docker compose version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        echo "✅ Docker Compose V2 found: $compose_version"
+        return 0
+    fi
+
+    # Check for Docker Compose V1 (docker-compose)
+    if command -v docker-compose &>/dev/null; then
+        compose_version=$(docker-compose --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        echo "✅ Docker Compose V1 found: $compose_version"
+        echo "⚠️  Note: Docker Compose V2 is recommended for better performance"
+        return 0
+    fi
+
+    echo "❌ [ERROR] Docker Compose not found"
+    return 1
+}
+
+# Function to install Docker Compose
+install_docker_compose() {
+    echo "📦 Installing Docker Compose..."
+    OS="$(uname -s)"
+
+    if [ "$OS" = "Darwin" ]; then
+        echo "Docker Compose should be included with Docker Desktop on macOS."
+        echo "Please ensure Docker Desktop is properly installed."
+        return 1
+    fi
+
+    # Detect Linux distribution
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        DISTRO=$ID
+    else
+        DISTRO="unknown"
+    fi
+
+    # Try to install docker-compose-plugin (V2)
+    case "$DISTRO" in
+        ubuntu|debian)
+            echo "Installing docker-compose-plugin via apt..."
+            if sudo apt-get update && sudo apt-get install -y docker-compose-plugin 2>/dev/null; then
+                echo "✅ Docker Compose V2 installed"
+                return 0
+            fi
+            ;;
+        fedora)
+            echo "Installing docker-compose-plugin via dnf..."
+            if sudo dnf install -y docker-compose-plugin 2>/dev/null; then
+                echo "✅ Docker Compose V2 installed"
+                return 0
+            fi
+            ;;
+        centos|rhel|rocky|almalinux)
+            echo "Installing docker-compose-plugin via dnf/yum..."
+            if command -v dnf &>/dev/null; then
+                sudo dnf install -y docker-compose-plugin 2>/dev/null && return 0
+            elif command -v yum &>/dev/null; then
+                sudo yum install -y docker-compose-plugin 2>/dev/null && return 0
+            fi
+            ;;
+        arch|manjaro)
+            echo "Installing docker-compose via pacman..."
+            if sudo pacman -S --noconfirm docker-compose 2>/dev/null; then
+                echo "✅ Docker Compose installed"
+                return 0
+            fi
+            ;;
+        alpine)
+            echo "Installing docker-compose via apk..."
+            if sudo apk add docker-compose 2>/dev/null; then
+                echo "✅ Docker Compose installed"
+                return 0
+            fi
+            ;;
+    esac
+
+    # Fallback: Download docker-compose binary directly
+    echo "Attempting to download Docker Compose binary..."
+    ARCH="$(uname -m)"
+    case "$ARCH" in
+        x86_64) ARCH="x86_64" ;;
+        aarch64|arm64) ARCH="aarch64" ;;
+        armv7l) ARCH="armv7" ;;
+        *)
+            echo "⚠️  Unsupported architecture for binary download: $ARCH"
+            return 1
+            ;;
+    esac
+
+    # Get latest compose version
+    COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    if [ -z "$COMPOSE_VERSION" ]; then
+        COMPOSE_VERSION="v2.24.0"  # Fallback version
+    fi
+
+    COMPOSE_URL="https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-${ARCH}"
+
+    echo "Downloading Docker Compose ${COMPOSE_VERSION}..."
+    if curl -L -o /tmp/docker-compose "$COMPOSE_URL" 2>/dev/null; then
+        sudo chmod +x /tmp/docker-compose
+        sudo mv /tmp/docker-compose /usr/local/bin/docker-compose
+        echo "✅ Docker Compose installed to /usr/local/bin/docker-compose"
+        return 0
+    fi
+
+    echo "❌ Failed to install Docker Compose"
+    return 1
+}
+
+# Function to check Docker permissions
+check_docker_permissions() {
+    echo ""
+    echo "--- Checking Docker Permissions ---"
+
+    # Try to run docker without sudo
+    if docker ps &>/dev/null; then
+        echo "✅ Docker is accessible without sudo"
+        return 0
+    fi
+
+    # Check if user is in docker group
+    if groups | grep -q docker; then
+        echo "⚠️  User is in docker group but docker daemon may not be running"
+        echo "   Try: sudo systemctl start docker"
+        return 1
+    fi
+
+    # Check if docker works with sudo
+    if sudo docker ps &>/dev/null; then
+        echo "⚠️  Docker requires sudo. For better experience, add user to docker group:"
+        echo "   sudo usermod -aG docker \$USER"
+        echo "   Then log out and back in."
+        echo ""
+        echo "   Continuing with sudo for now..."
+        return 0
+    fi
+
+    echo "❌ Docker daemon is not running or not accessible"
+    echo "   Try: sudo systemctl start docker"
+    return 1
 }
 
 # Function to install Docker CE on different distributions
@@ -788,13 +949,19 @@ install_python_from_source() {
     echo "You may need to restart your shell or run: source ~/.bashrc"
 }
 
-# Main Python check
+# Main Python check - but don't fail immediately if version is old
+# uv can install Python automatically later
 python_check_result=0
 check_python_version || python_check_result=$?
 
+# Store the result for later - we'll use uv to fix Python issues if needed
+PYTHON_NEEDS_UPGRADE=false
+
 if [ $python_check_result -eq 1 ]; then
-    # Python not found at all
-    exit 1
+    # Python not found at all - this is critical, we need at least basic Python
+    echo ""
+    echo "⚠️  No Python 3 found. Will attempt to use uv to install Python later..."
+    PYTHON_NEEDS_UPGRADE=true
 elif [ $python_check_result -eq 2 ]; then
     # Python found but version too old
     if [ "$UPGRADE_PYTHON" = true ]; then
@@ -802,11 +969,11 @@ elif [ $python_check_result -eq 2 ]; then
         if install_newer_python; then
             echo "✅ Python upgrade completed"
             echo "🔄 Re-checking Python version..."
-            
+
             # Refresh command hash and PATH
             hash -r
             export PATH="/usr/local/bin:$PATH"
-            
+
             # Re-run the Python version check
             if check_python_version; then
                 echo "✅ Python upgrade verification successful"
@@ -814,32 +981,24 @@ elif [ $python_check_result -eq 2 ]; then
                 echo "❌ Python upgrade verification failed"
                 echo ""
                 echo "The newer Python was installed but python3 still points to the old version."
-                echo "This can happen due to shell caching or PATH issues."
-                echo ""
-                echo "📋 Manual steps to fix:"
-                echo "1. Open a new terminal/shell session"
-                echo "2. Run: source ~/.bashrc"
-                echo "3. Check: python3 --version"
-                echo "4. Re-run: ./setup"
-                echo ""
-                exit 1
+                echo "Will attempt to use uv to manage Python later..."
+                PYTHON_NEEDS_UPGRADE=true
             fi
         else
-            echo "❌ Failed to upgrade Python"
-            exit 1
+            echo "⚠️  Manual Python upgrade failed. Will attempt to use uv to install Python later..."
+            PYTHON_NEEDS_UPGRADE=true
         fi
     else
         echo ""
-        echo "📋 Options to resolve this:"
-        echo "1. Re-run with --upgrade-python to automatically install Python 3.8+"
-        echo "2. Install Python 3.8+ manually:"
-        echo "   • Ubuntu/Debian: sudo apt install python3.11"
-        echo "   • CentOS/RHEL: sudo dnf install python3.11"
-        echo "   • Or compile from source"
-        echo "3. Use pyenv to manage Python versions"
-        echo ""
-        exit 1
+        echo "⚠️  Python version is too old. Will attempt to use uv to install Python later..."
+        PYTHON_NEEDS_UPGRADE=true
     fi
+elif [ $python_check_result -eq 3 ]; then
+    # macOS: Python cannot create venvs (CommandLineTools limitation)
+    echo ""
+    echo "⚠️  Your Python cannot create virtual environments."
+    echo "   Will attempt to use uv to manage Python later..."
+    PYTHON_NEEDS_UPGRADE=true
 fi
 
 # Main Docker check
@@ -889,7 +1048,7 @@ elif [ $docker_check_result -eq 2 ]; then
         if install_docker; then
             echo "✅ Docker upgrade completed"
             echo "🔄 Re-checking Docker version..."
-            
+
             # Re-run the Docker version check
             if check_docker_version; then
                 echo "✅ Docker upgrade verification successful"
@@ -910,6 +1069,31 @@ elif [ $docker_check_result -eq 2 ]; then
         echo ""
         echo "Continuing with current Docker version..."
     fi
+fi
+
+# Check Docker Compose
+if ! check_docker_compose; then
+    echo "Attempting to install Docker Compose..."
+    if ! install_docker_compose; then
+        echo ""
+        echo "❌ [ERROR] Docker Compose is required but could not be installed"
+        echo ""
+        echo "📋 Manual installation options:"
+        echo "  • Ubuntu/Debian: sudo apt install docker-compose-plugin"
+        echo "  • Fedora: sudo dnf install docker-compose-plugin"
+        echo "  • Or download from: https://github.com/docker/compose/releases"
+        echo ""
+        exit 1
+    fi
+fi
+
+# Check Docker permissions
+if ! check_docker_permissions; then
+    echo ""
+    echo "⚠️  Docker permission issues detected"
+    echo "The setup will continue, but you may need to use 'sudo' with docker commands"
+    echo "or fix permissions by adding your user to the docker group."
+    echo ""
 fi
 
 # Check for Git
@@ -1285,121 +1469,595 @@ else
     fi
 fi
 
-# 2. Install Poetry and dependencies
-echo -e "\n--- Setting up Python Environment with Poetry ---"
+# 2. Install uv and dependencies
+echo -e "\n--- Setting up Python Environment with uv ---"
 
-# Function to install Poetry with error handling
-install_poetry() {
-    local attempt=1
-    local max_attempts=3
-    
-    while [ $attempt -le $max_attempts ]; do
-        echo "📦 Installing Poetry (attempt $attempt/$max_attempts)..."
-        
-        if curl -sSL https://install.python-poetry.org | python3 -; then
-            # Add poetry to the path for the current session
-            export PATH="$HOME/.local/bin:$PATH"
-            
-            # Verify installation
-            if command -v poetry &> /dev/null; then
-                echo "✅ Poetry installed successfully"
-                return 0
-            else
-                echo "⚠️  Poetry installed but not found in PATH"
-                echo "Checking common installation locations..."
-                
-                # Try common Poetry installation paths
-                for poetry_path in "$HOME/.local/bin/poetry" "$HOME/.poetry/bin/poetry" "/usr/local/bin/poetry"; do
-                    if [ -x "$poetry_path" ]; then
-                        echo "Found Poetry at: $poetry_path"
-                        export PATH="$(dirname "$poetry_path"):$PATH"
-                        return 0
-                    fi
-                done
-            fi
-        else
-            echo "❌ Poetry installation failed on attempt $attempt"
+# Function to verify uv installation and add to PATH
+verify_uv_installation() {
+    # Add common uv paths to PATH for this session
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/bin:$PATH"
+
+    if command -v uv &> /dev/null; then
+        return 0
+    fi
+
+    # Check common installation locations manually
+    for uv_path in "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv" "/usr/local/bin/uv" "/opt/homebrew/bin/uv"; do
+        if [ -x "$uv_path" ]; then
+            export PATH="$(dirname "$uv_path"):$PATH"
+            return 0
         fi
-        
-        if [ $attempt -lt $max_attempts ]; then
-            echo "🔄 Retrying in 2 seconds..."
-            sleep 2
-        fi
-        
-        attempt=$((attempt + 1))
     done
-    
+
     return 1
 }
 
-# Check if Poetry is already installed
-if command -v poetry &> /dev/null; then
-    echo "✅ Poetry is already installed"
-    poetry_version=$(poetry --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-    if [ -n "$poetry_version" ]; then
-        echo "🐍 Poetry version: $poetry_version"
+# Function to install uv via official installer (primary method)
+install_uv_official() {
+    echo "📦 Installing uv via official installer..."
+    if curl -LsSf https://astral.sh/uv/install.sh | sh; then
+        if verify_uv_installation; then
+            echo "✅ uv installed successfully via official installer"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Function to install uv via pip (fallback method)
+install_uv_pip() {
+    echo "📦 Installing uv via pip..."
+    if python3 -m pip install --user uv 2>/dev/null || pip3 install --user uv 2>/dev/null; then
+        if verify_uv_installation; then
+            echo "✅ uv installed successfully via pip"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Function to install uv via pipx (alternative method)
+install_uv_pipx() {
+    if command -v pipx &> /dev/null; then
+        echo "📦 Installing uv via pipx..."
+        if pipx install uv 2>/dev/null; then
+            if verify_uv_installation; then
+                echo "✅ uv installed successfully via pipx"
+                return 0
+            fi
+        fi
+    fi
+    return 1
+}
+
+# Function to install uv via system package manager
+install_uv_package_manager() {
+    echo "📦 Attempting to install uv via system package manager..."
+    OS="$(uname -s)"
+
+    if [ "$OS" = "Darwin" ]; then
+        # macOS - try Homebrew
+        if command -v brew &> /dev/null; then
+            echo "Installing uv with Homebrew..."
+            if brew install uv 2>/dev/null; then
+                if verify_uv_installation; then
+                    echo "✅ uv installed successfully via Homebrew"
+                    return 0
+                fi
+            fi
+        fi
+    elif [ "$OS" = "Linux" ]; then
+        # Linux - try various package managers
+        if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            DISTRO=$ID
+        else
+            DISTRO="unknown"
+        fi
+
+        case "$DISTRO" in
+            arch|manjaro)
+                if command -v pacman &> /dev/null; then
+                    echo "Installing uv with pacman..."
+                    if sudo pacman -S --noconfirm uv 2>/dev/null; then
+                        if verify_uv_installation; then
+                            echo "✅ uv installed successfully via pacman"
+                            return 0
+                        fi
+                    fi
+                fi
+                ;;
+            alpine)
+                if command -v apk &> /dev/null; then
+                    echo "Installing uv with apk..."
+                    if sudo apk add py3-uv uv 2>/dev/null; then
+                        if verify_uv_installation; then
+                            echo "✅ uv installed successfully via apk"
+                            return 0
+                        fi
+                    fi
+                fi
+                ;;
+            fedora)
+                if command -v dnf &> /dev/null; then
+                    echo "Installing uv with dnf..."
+                    if sudo dnf install -y uv 2>/dev/null; then
+                        if verify_uv_installation; then
+                            echo "✅ uv installed successfully via dnf"
+                            return 0
+                        fi
+                    fi
+                fi
+                ;;
+            opensuse*|sles)
+                if command -v zypper &> /dev/null; then
+                    echo "Installing uv with zypper..."
+                    if sudo zypper install -y uv 2>/dev/null; then
+                        if verify_uv_installation; then
+                            echo "✅ uv installed successfully via zypper"
+                            return 0
+                        fi
+                    fi
+                fi
+                ;;
+            void)
+                if command -v xbps-install &> /dev/null; then
+                    echo "Installing uv with xbps..."
+                    if sudo xbps-install -y uv 2>/dev/null; then
+                        if verify_uv_installation; then
+                            echo "✅ uv installed successfully via xbps"
+                            return 0
+                        fi
+                    fi
+                fi
+                ;;
+            gentoo)
+                if command -v emerge &> /dev/null; then
+                    echo "Installing uv with emerge..."
+                    if sudo emerge --ask=n dev-python/uv 2>/dev/null; then
+                        if verify_uv_installation; then
+                            echo "✅ uv installed successfully via emerge"
+                            return 0
+                        fi
+                    fi
+                fi
+                ;;
+            nixos)
+                echo "⚠️  NixOS detected. Please add uv to your system configuration:"
+                echo "   environment.systemPackages = with pkgs; [ uv ];"
+                echo "   Then run: sudo nixos-rebuild switch"
+                return 1
+                ;;
+        esac
+
+        # Try Homebrew on Linux if available (Linuxbrew)
+        if command -v brew &> /dev/null; then
+            echo "Installing uv with Homebrew (Linux)..."
+            if brew install uv 2>/dev/null; then
+                if verify_uv_installation; then
+                    echo "✅ uv installed successfully via Homebrew"
+                    return 0
+                fi
+            fi
+        fi
+    fi
+
+    return 1
+}
+
+# Function to download uv binary directly (last resort fallback)
+install_uv_binary() {
+    echo "📦 Installing uv binary directly from GitHub..."
+
+    # Detect architecture
+    ARCH="$(uname -m)"
+    case "$ARCH" in
+        x86_64) ARCH="x86_64" ;;
+        aarch64|arm64) ARCH="aarch64" ;;
+        armv7l) ARCH="armv7" ;;
+        i686|i386) ARCH="i686" ;;
+        *)
+            echo "⚠️  Unsupported architecture: $ARCH"
+            return 1
+            ;;
+    esac
+
+    # Detect OS and libc type
+    OS="$(uname -s)"
+    case "$OS" in
+        Linux)
+            # Check if musl or glibc
+            if ldd --version 2>&1 | grep -qi musl || [ -f /etc/alpine-release ]; then
+                OS_NAME="unknown-linux-musl"
+            else
+                OS_NAME="unknown-linux-gnu"
+            fi
+            ;;
+        Darwin)
+            OS_NAME="apple-darwin"
+            ;;
+        FreeBSD)
+            OS_NAME="unknown-freebsd"
+            ;;
+        *)
+            echo "⚠️  Unsupported OS: $OS"
+            return 1
+            ;;
+    esac
+
+    # Get latest release version
+    echo "Fetching latest uv release..."
+    LATEST_VERSION=$(curl -s https://api.github.com/repos/astral-sh/uv/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+
+    if [ -z "$LATEST_VERSION" ]; then
+        # Fallback to a known stable version
+        LATEST_VERSION="0.5.0"
+        echo "Could not fetch latest version, using fallback: $LATEST_VERSION"
+    fi
+
+    echo "Version: $LATEST_VERSION"
+
+    # Construct download URL
+    BINARY_NAME="uv-${ARCH}-${OS_NAME}.tar.gz"
+    DOWNLOAD_URL="https://github.com/astral-sh/uv/releases/download/${LATEST_VERSION}/${BINARY_NAME}"
+
+    echo "Downloading: $DOWNLOAD_URL"
+
+    # Download and install
+    TEMP_DIR=$(mktemp -d)
+    if curl -fSL -o "$TEMP_DIR/uv.tar.gz" "$DOWNLOAD_URL" 2>/dev/null; then
+        tar -xzf "$TEMP_DIR/uv.tar.gz" -C "$TEMP_DIR" 2>/dev/null
+
+        # Find the uv binary in extracted files
+        UV_BINARY=$(find "$TEMP_DIR" -name "uv" -type f 2>/dev/null | head -1)
+
+        if [ -n "$UV_BINARY" ]; then
+            chmod +x "$UV_BINARY"
+            mkdir -p "$HOME/.local/bin"
+            mv "$UV_BINARY" "$HOME/.local/bin/uv"
+
+            # Also copy uvx if available
+            UVX_BINARY=$(find "$TEMP_DIR" -name "uvx" -type f 2>/dev/null | head -1)
+            if [ -n "$UVX_BINARY" ]; then
+                chmod +x "$UVX_BINARY"
+                mv "$UVX_BINARY" "$HOME/.local/bin/uvx"
+            fi
+
+            export PATH="$HOME/.local/bin:$PATH"
+            rm -rf "$TEMP_DIR"
+
+            if verify_uv_installation; then
+                echo "✅ uv binary installed successfully to ~/.local/bin"
+                return 0
+            fi
+        fi
+    else
+        echo "Download failed. Trying alternative URL format..."
+        # Try alternative binary naming convention
+        BINARY_NAME="uv-${ARCH}-${OS_NAME}"
+        DOWNLOAD_URL="https://github.com/astral-sh/uv/releases/download/${LATEST_VERSION}/${BINARY_NAME}"
+
+        if curl -fSL -o "$TEMP_DIR/uv" "$DOWNLOAD_URL" 2>/dev/null; then
+            chmod +x "$TEMP_DIR/uv"
+            mkdir -p "$HOME/.local/bin"
+            mv "$TEMP_DIR/uv" "$HOME/.local/bin/uv"
+            export PATH="$HOME/.local/bin:$PATH"
+            rm -rf "$TEMP_DIR"
+
+            if verify_uv_installation; then
+                echo "✅ uv binary installed successfully to ~/.local/bin"
+                return 0
+            fi
+        fi
+    fi
+
+    rm -rf "$TEMP_DIR"
+    return 1
+}
+
+# Main uv installation function with multiple fallback methods
+install_uv() {
+    local attempt=1
+    local max_attempts=2
+
+    while [ $attempt -le $max_attempts ]; do
+        echo "🔄 Installation attempt $attempt/$max_attempts..."
+
+        # Try methods in order of preference
+        # 1. Official installer (most reliable, handles all platforms)
+        if install_uv_official; then
+            return 0
+        fi
+        echo "⚠️  Official installer failed, trying alternatives..."
+
+        # 2. System package manager (if available)
+        if install_uv_package_manager; then
+            return 0
+        fi
+
+        # 3. pip installation (widely available)
+        if install_uv_pip; then
+            return 0
+        fi
+
+        # 4. pipx installation (if available)
+        if install_uv_pipx; then
+            return 0
+        fi
+
+        # 5. Direct binary download (last resort)
+        if install_uv_binary; then
+            return 0
+        fi
+
+        if [ $attempt -lt $max_attempts ]; then
+            echo "🔄 All methods failed. Retrying in 3 seconds..."
+            sleep 3
+        fi
+
+        attempt=$((attempt + 1))
+    done
+
+    return 1
+}
+
+# Check if uv is already installed
+if verify_uv_installation; then
+    echo "✅ uv is already installed"
+    uv_version=$(uv --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    if [ -n "$uv_version" ]; then
+        echo "📦 uv version: $uv_version"
     fi
 else
-    echo "Poetry not found. Installing Poetry..."
-    
-    if ! install_poetry; then
+    echo "uv not found. Installing uv..."
+
+    if ! install_uv; then
         echo ""
-        echo "❌ [ERROR] Failed to install Poetry after multiple attempts"
+        echo "❌ [ERROR] Failed to install uv after multiple attempts"
         echo ""
         echo "📋 Manual installation options:"
-        echo "1. Install via pip (if you have Python 3.8+):"
-        echo "   pip3 install --user poetry"
         echo ""
-        echo "2. Install via official installer (retry):"
-        echo "   curl -sSL https://install.python-poetry.org | python3 -"
+        echo "1. Official installer (recommended):"
+        echo "   curl -LsSf https://astral.sh/uv/install.sh | sh"
         echo ""
-        echo "3. Install via system package manager:"
-        echo "   • Ubuntu/Debian: sudo apt install python3-poetry"
-        echo "   • Fedora: sudo dnf install poetry"
+        echo "2. Via pip:"
+        echo "   pip3 install uv"
         echo ""
-        echo "4. If using older Python, upgrade first:"
-        echo "   ./setup --upgrade-python"
+        echo "3. Via Homebrew (macOS/Linux):"
+        echo "   brew install uv"
+        echo ""
+        echo "4. Via pacman (Arch Linux):"
+        echo "   sudo pacman -S uv"
+        echo ""
+        echo "5. Download binary directly:"
+        echo "   https://github.com/astral-sh/uv/releases"
+        echo ""
+        echo "After installing uv, re-run: ./setup"
         echo ""
         exit 1
     fi
 fi
 
-echo "✅ Poetry is available."
+echo "✅ uv is available."
 
-# Install project dependencies with better error handling  
-echo "Installing project dependencies with Poetry... (This may take a moment)"
+# Use uv to ensure Python is available (uv can auto-download Python if needed)
+echo ""
+echo "--- Ensuring Python availability via uv ---"
 
-# Function to install dependencies with retry logic
-install_dependencies() {
-    local attempt=1
-    local max_attempts=2
-    
-    while [ $attempt -le $max_attempts ]; do
-        echo "📦 Installing dependencies (attempt $attempt/$max_attempts)..."
-        
-        # The poetry.toml file now handles all virtualenv configuration.
-        # We just need to run install within an isolated subshell to avoid
-        # conflicts with any externally activated virtual environments.
-        if (
-            unset VIRTUAL_ENV
-            poetry install --no-ansi
-        ); then
-            echo "✅ Dependencies installed successfully"
+ensure_python_with_uv() {
+    # uv can automatically download and manage Python versions
+    # First, check if a suitable Python is already available
+    if uv python find ">=3.8" &>/dev/null; then
+        PYTHON_PATH=$(uv python find ">=3.8" 2>/dev/null)
+        echo "✅ Found suitable Python: $PYTHON_PATH"
+        return 0
+    fi
+
+    # If not, let uv install Python
+    echo "📦 No suitable Python found. Using uv to install Python 3.11..."
+    if uv python install 3.11 2>&1; then
+        echo "✅ Python 3.11 installed via uv"
+
+        # Verify it was installed correctly
+        if uv python find ">=3.8" &>/dev/null; then
+            PYTHON_PATH=$(uv python find ">=3.8" 2>/dev/null)
+            echo "✅ Verified Python installation: $PYTHON_PATH"
             return 0
+        fi
+    fi
+
+    echo "⚠️  uv could not install Python automatically"
+    return 1
+}
+
+if ! ensure_python_with_uv; then
+    echo ""
+    echo "⚠️  Could not ensure Python via uv. Checking system Python..."
+
+    # Check if system Python is at least usable
+    if python3 -c "import sys; exit(0 if sys.version_info >= (3, 8) else 1)" 2>/dev/null; then
+        echo "✅ System Python 3.8+ is available as fallback"
+    else
+        echo ""
+        echo "❌ [ERROR] No suitable Python 3.8+ found"
+        echo ""
+        echo "uv could not automatically install Python, and no compatible"
+        echo "system Python was found."
+        echo ""
+        echo "📋 Options to resolve this:"
+        echo ""
+        echo "1. Run with --upgrade-python flag:"
+        echo "   ./setup --upgrade-python"
+        echo ""
+        echo "2. Install Python manually:"
+        echo "   • Ubuntu/Debian: sudo apt install python3.11"
+        echo "   • CentOS/RHEL:   sudo dnf install python3.11"
+        echo "   • macOS:         brew install python@3.11"
+        echo "   • Or download from: https://www.python.org/downloads/"
+        echo ""
+        echo "3. Use pyenv to manage Python versions:"
+        echo "   curl https://pyenv.run | bash"
+        echo "   pyenv install 3.11"
+        echo "   pyenv global 3.11"
+        echo ""
+        exit 1
+    fi
+fi
+
+# If we needed to upgrade Python and uv handled it, verify one more time
+if [ "$PYTHON_NEEDS_UPGRADE" = true ]; then
+    echo "🔍 Final Python verification..."
+    if uv python find ">=3.8" &>/dev/null; then
+        echo "✅ Python requirement satisfied via uv"
+    elif python3 -c "import sys; exit(0 if sys.version_info >= (3, 8) else 1)" 2>/dev/null; then
+        echo "✅ Python requirement satisfied via system Python"
+    else
+        echo "❌ [ERROR] Python 3.8+ is still not available"
+        echo "Please install Python 3.8 or higher manually and re-run ./setup"
+        exit 1
+    fi
+fi
+
+# Install project dependencies with better error handling
+echo "Installing project dependencies with uv... (This may take a moment)"
+
+# Function to verify the virtual environment is correctly set up
+verify_venv() {
+    if [ ! -d ".venv" ]; then
+        return 1
+    fi
+
+    # Check for Python executable in venv
+    if [ -x ".venv/bin/python" ] || [ -x ".venv/Scripts/python.exe" ]; then
+        return 0
+    fi
+
+    return 1
+}
+
+# Function to install dependencies using uv sync (preferred method)
+install_deps_uv_sync() {
+    echo "📦 Installing dependencies with 'uv sync'..."
+    (
+        unset VIRTUAL_ENV
+        # Use --python-preference managed to let uv handle Python if needed
+        # Use --frozen if lockfile exists to ensure reproducibility
+        if [ -f "uv.lock" ]; then
+            uv sync --frozen 2>&1
         else
-            echo "❌ Dependency installation failed on attempt $attempt"
-            
-            if [ $attempt -lt $max_attempts ]; then
-                echo "🔄 Retrying..."
-                # Clear poetry cache and retry
-                poetry cache clear --all . 2>/dev/null || true
-                sleep 2
+            uv sync 2>&1
+        fi
+    )
+    return $?
+}
+
+# Function to install dependencies using uv with explicit Python (alternative method)
+install_deps_uv_python() {
+    echo "📦 Installing dependencies with 'uv sync' and managed Python..."
+    (
+        unset VIRTUAL_ENV
+        # Let uv find or install a suitable Python version
+        uv sync --python ">=3.8" 2>&1
+    )
+    return $?
+}
+
+# Function to install dependencies using uv pip (fallback method)
+install_deps_uv_pip() {
+    echo "📦 Installing dependencies with 'uv pip' (fallback)..."
+    (
+        unset VIRTUAL_ENV
+
+        # Create venv if it doesn't exist
+        if [ ! -d ".venv" ]; then
+            echo "Creating virtual environment..."
+            # Try uv venv first, then fall back to python3 -m venv
+            if ! uv venv .venv 2>&1; then
+                echo "uv venv failed, trying python3 -m venv..."
+                python3 -m venv .venv 2>&1 || return 1
             fi
         fi
-        
+
+        # Install the project in editable mode using uv pip
+        echo "Installing project with uv pip..."
+        if uv pip install -e . --python .venv/bin/python 2>&1; then
+            return 0
+        fi
+
+        # Fallback to regular pip
+        echo "uv pip failed, trying regular pip..."
+        if [ -x ".venv/bin/pip" ]; then
+            .venv/bin/pip install -e . 2>&1
+        elif [ -x ".venv/bin/python" ]; then
+            .venv/bin/python -m pip install -e . 2>&1
+        else
+            return 1
+        fi
+    )
+    return $?
+}
+
+# Function to install dependencies with retry logic and multiple methods
+install_dependencies() {
+    local attempt=1
+    local max_attempts=3
+
+    while [ $attempt -le $max_attempts ]; do
+        echo "🔄 Dependency installation attempt $attempt/$max_attempts..."
+
+        # Clean up any corrupted state on retry
+        if [ $attempt -gt 1 ]; then
+            echo "🧹 Cleaning up previous attempt..."
+            rm -rf .venv 2>/dev/null || true
+            # Only remove lockfile on final attempt
+            if [ $attempt -eq $max_attempts ]; then
+                rm -f uv.lock 2>/dev/null || true
+            fi
+            sleep 1
+        fi
+
+        # Try uv sync first (preferred method - uses lockfile)
+        if install_deps_uv_sync; then
+            if verify_venv; then
+                echo "✅ Dependencies installed successfully with uv sync"
+                return 0
+            else
+                echo "⚠️  uv sync completed but venv verification failed"
+            fi
+        else
+            echo "⚠️  uv sync failed"
+        fi
+
+        # On second attempt, try with explicit Python management
+        if [ $attempt -eq 2 ]; then
+            echo "🔄 Trying with uv-managed Python..."
+            if install_deps_uv_python; then
+                if verify_venv; then
+                    echo "✅ Dependencies installed successfully with managed Python"
+                    return 0
+                fi
+            fi
+        fi
+
+        # Fallback to uv pip / manual venv creation
+        if [ $attempt -ge 2 ]; then
+            echo "🔄 Trying fallback installation method..."
+            if install_deps_uv_pip; then
+                if verify_venv; then
+                    echo "✅ Dependencies installed successfully with fallback method"
+                    return 0
+                fi
+            fi
+        fi
+
+        if [ $attempt -lt $max_attempts ]; then
+            echo "🔄 Retrying in 2 seconds..."
+            sleep 2
+        fi
+
         attempt=$((attempt + 1))
     done
-    
+
     return 1
 }
 
@@ -1407,27 +2065,59 @@ if ! install_dependencies; then
     echo ""
     echo "❌ [ERROR] Failed to install project dependencies"
     echo ""
-    echo "📋 This might be due to:"
+    echo "📋 Troubleshooting steps:"
+    echo ""
     echo "1. Python version incompatibility (requires Python 3.8+)"
-    echo "   Solution: Run './setup --upgrade-python'"
+    echo "   Check: python3 --version"
+    echo "   Fix: ./setup --upgrade-python"
     echo ""
     echo "2. Network connectivity issues"
-    echo "   Solution: Check internet connection and retry"
+    echo "   Check: curl -I https://pypi.org"
+    echo "   Fix: Check internet connection and firewall settings"
     echo ""
-    echo "3. Poetry cache corruption"
-    echo "   Solution: Run 'poetry cache clear --all .' and retry"
+    echo "3. Corrupted virtual environment"
+    echo "   Fix: rm -rf .venv && ./setup"
     echo ""
-    echo "4. Missing system dependencies"
-    echo "   Solution: Install build tools for your distribution"
+    echo "4. Corrupted lockfile"
+    echo "   Fix: rm -f uv.lock && ./setup"
     echo ""
-    echo "💡 To retry just the dependency installation:"
-    echo "   poetry install --no-ansi"
+    echo "5. Missing system build tools"
+    echo "   Ubuntu/Debian: sudo apt install build-essential python3-dev"
+    echo "   CentOS/RHEL: sudo dnf groupinstall 'Development Tools'"
+    echo "   macOS: xcode-select --install"
+    echo ""
+    echo "💡 Manual installation commands:"
+    echo "   uv sync                    # Preferred method"
+    echo "   uv venv && uv pip install -e .  # Alternative method"
+    echo ""
+    exit 1
+fi
+
+# Verify the installation worked correctly
+if ! verify_venv; then
+    echo ""
+    echo "❌ [ERROR] Virtual environment verification failed"
+    echo "The .venv directory exists but appears to be corrupted."
+    echo ""
+    echo "Fix: rm -rf .venv && ./setup"
     echo ""
     exit 1
 fi
 
 # Make the wrapper script executable
 chmod +x easy-opal
+
+# Final verification: test that easy-opal actually works
+echo ""
+echo "--- Final Verification ---"
+if ./.venv/bin/python -m src.cli --help &>/dev/null; then
+    echo "✅ easy-opal CLI verified and working"
+else
+    echo "⚠️  Warning: easy-opal CLI verification failed"
+    echo "   The installation may have issues. Try running:"
+    echo "   ./easy-opal --help"
+    echo ""
+fi
 
 echo -e "\n✅ Setup complete! The environment is ready."
 
