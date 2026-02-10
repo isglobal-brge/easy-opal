@@ -17,7 +17,6 @@ if [ ! -d "$VENV_PATH" ]; then
     exit 1
 fi
 
-# Activate the virtual environment and execute the python script.
-# This is more robust than 'poetry run' when an external venv is also active.
+# Execute the python script using the virtual environment's Python.
 # By calling the python executable directly, we avoid any 'source' issues.
 "$VENV_PATH/bin/python" -m src.cli "$@" 

@@ -23,24 +23,45 @@ def run_git_command(command: list) -> (bool, str):
     except subprocess.CalledProcessError as e:
         return False, e.stderr.strip()
 
+def find_uv():
+    """Find uv executable in common locations."""
+    import os
+    # Check standard PATH first
+    uv_path = shutil.which("uv")
+    if uv_path:
+        return uv_path
+
+    # Check common installation locations
+    common_paths = [
+        os.path.expanduser("~/.local/bin/uv"),
+        os.path.expanduser("~/.cargo/bin/uv"),
+        "/usr/local/bin/uv",
+        "/opt/homebrew/bin/uv",
+    ]
+    for path in common_paths:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return None
+
 def update_dependencies():
-    """Check and update Python dependencies if Poetry is available."""
+    """Check and update Python dependencies if uv is available."""
+    import os
     console.print("[cyan]🔍 Checking for Python dependency updates...[/cyan]")
-    
-    # Check if Poetry is available
-    if shutil.which("poetry"):
-        console.print("[blue]📦 Poetry detected, updating dependencies...[/blue]")
-        
-        # Check if we're in a Poetry project
+
+    # Check if uv is available
+    uv_path = find_uv()
+    if uv_path:
+        console.print("[blue]📦 uv detected, updating dependencies...[/blue]")
+
+        # Check if we're in a uv project
         try:
-            import os
-            if os.path.exists("pyproject.toml") and os.path.exists("poetry.lock"):
-                console.print("  - Running poetry install to update dependencies")
-                
-                # Run poetry install --only=main
+            if os.path.exists("pyproject.toml"):
+                console.print("  - Running uv sync to update dependencies")
+
+                # Run uv sync
                 try:
                     result = subprocess.run(
-                        ["poetry", "install", "--only=main"],
+                        [uv_path, "sync"],
                         check=True,
                         capture_output=True,
                         text=True,
@@ -49,26 +70,26 @@ def update_dependencies():
                     console.print("[green]✅ Dependencies updated successfully[/green]")
                     return True
                 except subprocess.CalledProcessError as e:
-                    # Poetry install might return non-zero but still work
-                    console.print("[yellow]⚠️  Poetry install completed with warnings (this may be normal)[/yellow]")
+                    # uv sync might return non-zero but still work
+                    console.print("[yellow]⚠️  uv sync completed with warnings (this may be normal)[/yellow]")
                     if e.stdout:
                         console.print(f"[dim]{e.stdout}[/dim]")
                     return True
             else:
-                console.print("[yellow]⚠️  Poetry files not found, skipping dependency update[/yellow]")
+                console.print("[yellow]⚠️  pyproject.toml not found, skipping dependency update[/yellow]")
                 return False
         except Exception as e:
             console.print(f"[red]❌ Error updating dependencies: {e}[/red]")
             return False
     else:
-        # Check if Python is available and suggest poetry
+        # Check if Python is available and suggest uv
         if shutil.which("python3") or shutil.which("python"):
-            console.print("[yellow]📦 Poetry not found, but Python is available[/yellow]")
-            console.print("  - Consider installing Poetry for automatic dependency management")
-            console.print("  - You can install it with: curl -sSL https://install.python-poetry.org | python3 -")
+            console.print("[yellow]📦 uv not found, but Python is available[/yellow]")
+            console.print("  - Consider installing uv for automatic dependency management")
+            console.print("  - You can install it with: curl -LsSf https://astral.sh/uv/install.sh | sh")
             console.print("  - Or run './setup' manually to update dependencies")
         else:
-            console.print("[blue]📦 Python/Poetry not detected, skipping dependency update[/blue]")
+            console.print("[blue]📦 Python/uv not detected, skipping dependency update[/blue]")
             console.print("  - If you're using Python, run './setup' manually to update dependencies")
         return False
 

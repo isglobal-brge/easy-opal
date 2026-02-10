@@ -34,9 +34,9 @@ show_help() {
     echo "  1. Backup your current configuration files (unless --no-backup)"
     echo "  2. Update to the latest version from GitHub"
     echo "  3. Restore your configuration files"
-    echo "  4. Automatically update Python dependencies (if Poetry is available)"
+    echo "  4. Automatically update Python dependencies (if uv is available)"
     echo ""
-    echo "If Poetry is not available, you may need to run './setup' to update dependencies manually."
+    echo "If uv is not available, you may need to run './setup' to update dependencies manually."
 }
 
 for arg in "$@"; do
@@ -243,34 +243,37 @@ fi
 # Make scripts executable
 chmod +x easy-opal setup update 2>/dev/null || true
 
-# Check and update Python dependencies if Poetry is available
+# Check and update Python dependencies if uv is available
 update_dependencies() {
     echo -e "${CYAN}🔍 Checking for Python dependency updates...${NC}"
-    
-    # Check if Poetry is available
-    if command -v poetry &> /dev/null; then
-        echo -e "${BLUE}📦 Poetry detected, updating dependencies...${NC}"
-        
-        # Check if we're in a Poetry project
-        if [ -f "pyproject.toml" ] && [ -f "poetry.lock" ]; then
-            echo "  - Running poetry install to update dependencies"
-            if poetry install --only=main; then
+
+    # Add common uv paths to PATH
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/bin:$PATH"
+
+    # Check if uv is available
+    if command -v uv &> /dev/null; then
+        echo -e "${BLUE}📦 uv detected, updating dependencies...${NC}"
+
+        # Check if we're in a uv project
+        if [ -f "pyproject.toml" ]; then
+            echo "  - Running uv sync to update dependencies"
+            if uv sync; then
                 echo -e "${GREEN}✅ Dependencies updated successfully${NC}"
             else
-                echo -e "${YELLOW}⚠️  Poetry install completed with warnings (this may be normal)${NC}"
+                echo -e "${YELLOW}⚠️  uv sync completed with warnings (this may be normal)${NC}"
             fi
         else
-            echo -e "${YELLOW}⚠️  Poetry files not found, skipping dependency update${NC}"
+            echo -e "${YELLOW}⚠️  pyproject.toml not found, skipping dependency update${NC}"
         fi
     else
-        # Check if Python is available and suggest poetry
+        # Check if Python is available and suggest uv
         if command -v python3 &> /dev/null || command -v python &> /dev/null; then
-            echo -e "${YELLOW}📦 Poetry not found, but Python is available${NC}"
-            echo "  - Consider installing Poetry for automatic dependency management"
-            echo "  - You can install it with: curl -sSL https://install.python-poetry.org | python3 -"
+            echo -e "${YELLOW}📦 uv not found, but Python is available${NC}"
+            echo "  - Consider installing uv for automatic dependency management"
+            echo "  - You can install it with: curl -LsSf https://astral.sh/uv/install.sh | sh"
             echo "  - Or run './setup' manually to update dependencies"
         else
-            echo -e "${BLUE}📦 Python/Poetry not detected, skipping dependency update${NC}"
+            echo -e "${BLUE}📦 Python/uv not detected, skipping dependency update${NC}"
             echo "  - If you're using Python, run './setup' manually to update dependencies"
         fi
     fi
@@ -288,12 +291,12 @@ if [ "$BACKUP_CONFIGS" = true ]; then
     echo "  - Configuration backed up to: $BACKUP_DIR"
     echo "  - Configuration files restored"
 fi
-echo "  - Python dependencies checked and updated (if Poetry available)"
+echo "  - Python dependencies checked and updated (if uv available)"
 echo ""
 echo "Next steps:"
 echo "  - Test your installation: ./easy-opal --help"
 echo "  - Check configuration: ./easy-opal config show"
-if ! command -v poetry &> /dev/null; then
+if ! command -v uv &> /dev/null; then
     echo "  - Run dependencies update: ./setup (if dependency issues occur)"
 fi
 echo "" 

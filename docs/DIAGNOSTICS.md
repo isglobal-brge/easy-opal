@@ -397,9 +397,10 @@ which python
 
 **Environment Issues:**
 ```bash
-# Verify Poetry environment
-poetry env info
-poetry install
+# Verify uv environment
+uv sync
+# Or recreate the environment
+rm -rf .venv && uv sync
 ```
 
 **Docker Issues:**

@@ -10,7 +10,7 @@
 > For comprehensive cross-platform support, Python version issues, and installation options, see: [**Cross-Platform Setup Guide**](./SETUP_CROSS_PLATFORM.md)
 > 
 > **Quick fixes:**
-> - Python/Poetry issues: `./setup --upgrade-python`
+> - Python issues: `./setup --upgrade-python`
 > - Docker issues: `./setup --upgrade-docker`
 > - SSL certificate issues: `./setup --skip-mkcert`
 > - **System health check**: `./easy-opal diagnose`

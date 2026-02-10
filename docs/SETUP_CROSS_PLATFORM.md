@@ -15,7 +15,7 @@ The `./setup` script is designed to automatically install and configure all depe
 # Skip certificate tools (for reverse proxy setups)
 ./setup --skip-mkcert
 
-# Install/upgrade Python 3.8+ if needed (fixes Poetry compatibility issues)
+# Install/upgrade Python 3.8+ if needed
 ./setup --upgrade-python
 
 # Install/upgrade Docker CE to latest version
@@ -32,7 +32,7 @@ The `./setup` script is designed to automatically install and configure all depe
 
 | Option | Description | Use Case |
 |--------|-------------|----------|
-| `--upgrade-python` | Install/upgrade to Python 3.8+ if needed | Fix Poetry 2.x compatibility on older systems |
+| `--upgrade-python` | Install/upgrade to Python 3.8+ if needed | Fix compatibility on older systems |
 | `--upgrade-docker` | Install/upgrade Docker CE to latest version | Modern Docker with Compose V2 support |
 | `--skip-mkcert` | Skip mkcert installation | Manual SSL cert management or reverse proxy |
 | `--help`, `-h` | Show usage information | Get help and see all options |
@@ -66,22 +66,18 @@ The `./setup` script is designed to automatically install and configure all depe
 
 The script automatically installs and configures:
 
-1. **Python 3.8+** (required for Poetry 2.x)
+1. **Python 3.8+** (required)
 2. **Docker CE 17.06+** (container runtime with Compose V2)
 3. **Git** (version control)
 4. **curl** (HTTP client)
 5. **mkcert** (SSL certificate generation)
-6. **Poetry** (Python dependency management)
+6. **uv** (Python dependency management)
 
 ## Python Version Compatibility
 
-### The Poetry 2.x Problem
+### The Python Version Problem
 
-Many systems (especially CentOS/RHEL/AlmaLinux) ship with Python 3.6 or 3.7, but Poetry 2.x requires Python 3.8+. This causes installation failures like:
-
-```
-ERROR: Could not find a version that satisfies the requirement poetry==2.1.3
-```
+Many systems (especially CentOS/RHEL/AlmaLinux) ship with Python 3.6 or 3.7, but easy-opal requires Python 3.8+. This can cause installation failures.
 
 ### Solution: Automatic Python Upgrade
 
@@ -96,7 +92,7 @@ The script will:
 2. **Install** Python 3.11 using the best method for your system
 3. **Configure** system alternatives to use the new version
 4. **Verify** that `python3 --version` shows the upgraded version
-5. **Install** Poetry successfully with the compatible Python
+5. **Install** uv and dependencies successfully
 
 ## Docker Version Compatibility
 
@@ -389,8 +385,8 @@ This is useful for:
 ### Automatic Retry Logic
 
 The script includes retry mechanisms for:
-- **Poetry installation** (3 attempts with cache clearing)
-- **Dependency installation** (2 attempts)
+- **uv installation** (multiple fallback methods)
+- **Dependency installation** (3 attempts)
 - **Network downloads** (with timeout handling)
 
 ### Comprehensive Error Messages
@@ -407,8 +403,8 @@ When failures occur, you get specific guidance:
 2. Network connectivity issues
    Solution: Check internet connection and retry
 
-3. Poetry cache corruption
-   Solution: Run 'poetry cache clear --all .' and retry
+3. Corrupted virtual environment
+   Solution: Run 'rm -rf .venv && ./setup' and retry
 
 4. Missing system dependencies
    Solution: Install build tools for your distribution
@@ -443,22 +439,25 @@ The script automatically detects your system:
 📦 Package manager: yum
 🔍 Using python3 from: /usr/bin/python3
 🐍 Python version: 3.6
-⚠️  Python 3.6 detected. Poetry 2.x requires Python 3.8+
+⚠️  Python 3.6 detected. Python 3.8+ is required
 ```
 
 ## Troubleshooting
 
 ### Common Issues
 
-#### 1. Poetry Installation Fails
+#### 1. uv Installation Fails
 **Symptom:**
 ```
-ERROR: Could not find a version that satisfies the requirement poetry==2.1.3
+❌ [ERROR] Failed to install uv after multiple attempts
 ```
 
 **Solution:**
 ```bash
-./setup --upgrade-python
+# Try manual installation
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Then re-run setup
+./setup
 ```
 
 #### 2. Docker Installation Fails
