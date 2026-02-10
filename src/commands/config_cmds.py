@@ -52,7 +52,7 @@ def change_password(password):
 def change_port(port):
     """Changes the external port for Opal."""
     cfg = load_config()
-    
+
     new_port = port
     if not new_port:
         new_port = IntPrompt.ask("Enter the new external HTTPS port", default=cfg["opal_external_port"])
@@ -64,6 +64,62 @@ def change_port(port):
     generate_compose_file()
     console.print("[green]Port updated in configuration.[/green]")
     console.print("\nRun './easy-opal up' to apply the changes.")
+
+@config.command(name="change-version")
+@click.argument("version", required=False)
+@click.option("--pull", is_flag=True, help="Pull the new Docker image immediately.")
+def change_version(version, pull):
+    """Changes the Opal Docker image version."""
+    from src.core.docker_manager import pull_docker_image
+
+    cfg = load_config()
+    current_version = cfg.get("opal_version", "latest")
+
+    console.print(f"[cyan]Current Opal version:[/cyan] [bold]{current_version}[/bold]")
+    console.print("[dim]Available versions: latest, 5.1, 5.0, 4.7, etc.[/dim]")
+    console.print("[dim]See all versions at: https://hub.docker.com/r/obiba/opal/tags[/dim]\n")
+
+    new_version = version
+    if not new_version:
+        new_version = Prompt.ask("Enter the new Opal version", default=current_version)
+
+    new_version = new_version.strip()
+    if not new_version:
+        console.print("[bold red]Version cannot be empty.[/bold red]")
+        return
+
+    if new_version == current_version:
+        console.print("[yellow]Version is already set to this value.[/yellow]")
+        if not pull:
+            return
+
+    # Create a snapshot before making changes
+    create_snapshot_from_manager(f"Changed Opal version from {current_version} to {new_version}")
+    cfg["opal_version"] = new_version
+    save_config(cfg)
+    generate_compose_file()
+
+    console.print(f"[green]Opal version updated to:[/green] [bold]{new_version}[/bold]")
+
+    if pull:
+        image_name = f"obiba/opal:{new_version}"
+        console.print(f"\n[cyan]Pulling new image...[/cyan]")
+        if pull_docker_image(image_name):
+            console.print("[green]Image pulled successfully.[/green]")
+        else:
+            console.print("[bold red]Failed to pull the image. The version may not exist.[/bold red]")
+            console.print("[yellow]Check available versions at: https://hub.docker.com/r/obiba/opal/tags[/yellow]")
+            return
+
+    console.print("\nRun './easy-opal restart' to apply the changes.")
+
+@config.command(name="show-version")
+def show_version():
+    """Shows the current Opal version configured."""
+    cfg = load_config()
+    current_version = cfg.get("opal_version", "latest")
+    console.print(f"[cyan]Current Opal version:[/cyan] [bold]{current_version}[/bold]")
+    console.print(f"[dim]Docker image: obiba/opal:{current_version}[/dim]")
 
 @config.command(name="show")
 def show_config():

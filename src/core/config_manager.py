@@ -48,6 +48,7 @@ def get_default_config() -> Dict[str, Any]:
     return {
         "stack_name": "easy-opal",
         "hosts": ["localhost", "127.0.0.1"],
+        "opal_version": "latest",
         "opal_external_port": 443,
         "opal_http_port": 8080,
         "opal_admin_password": "password",

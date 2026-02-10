@@ -230,6 +230,7 @@ def parse_database_spec(spec: str) -> dict:
 @click.option("--ssl-key-path", help="Path to your private key file (for 'manual' strategy).")
 @click.option("--ssl-email", help="Email for Let's Encrypt renewal notices (for 'letsencrypt' strategy).")
 @click.option('--database', 'databases_spec', multiple=True, help='Add database instance. Format: type:name:port:user:password (e.g., postgres:maindb:5432:opal:pass123). Can be used multiple times.')
+@click.option('--opal-version', help='Opal Docker image version/tag (e.g., latest, 5.1, 5.0). Default: latest.')
 @click.option("--yes", is_flag=True, help="Bypass confirmation prompts for a non-interactive setup.")
 @click.option('--reset-containers', is_flag=True, help='[Non-interactive] Stop and remove Docker containers and networks.')
 @click.option('--reset-volumes', is_flag=True, help='[Non-interactive] Delete Docker volumes (application data).')
@@ -238,7 +239,7 @@ def parse_database_spec(spec: str) -> dict:
 @click.option('--reset-secrets', is_flag=True, help='[Non-interactive] Reset secrets file during setup.')
 def setup(
     stack_name, hosts, port, http_port, password, ssl_strategy, ssl_cert_path,
-    ssl_key_path, ssl_email, databases_spec, yes, reset_containers, reset_volumes,
+    ssl_key_path, ssl_email, databases_spec, opal_version, yes, reset_containers, reset_volumes,
     reset_configs, reset_certs, reset_secrets
 ):
     """Guides you through the initial setup or reconfigures the environment."""
@@ -322,6 +323,13 @@ def setup(
         # --- Collect Base Config ---
         console.print("[cyan]1. General Configuration[/cyan]")
         config["stack_name"] = Prompt.ask("Enter the stack name", default=config["stack_name"])
+
+        # --- Opal Version Selection ---
+        console.print("\n[cyan]Opal Version[/cyan]")
+        console.print("[dim]Available versions: latest (recommended), or specific versions like 5.1, 5.0, 4.7, etc.[/dim]")
+        console.print("[dim]See all versions at: https://hub.docker.com/r/obiba/opal/tags[/dim]")
+        version_input = Prompt.ask("Enter Opal version", default=config.get("opal_version", "latest"))
+        config["opal_version"] = version_input.strip() if version_input.strip() else "latest"
         
         # --- Collect SSL Strategy ---
         console.print("\n[cyan]2. SSL Certificate Configuration[/cyan]")
@@ -458,6 +466,7 @@ def setup(
         if hosts: config["hosts"] = list(hosts)
         if port: config["opal_external_port"] = port
         if http_port: config["opal_http_port"] = http_port
+        if opal_version: config["opal_version"] = opal_version
         if password:
             # Save password to .env file for non-interactive setup
             (Path.cwd() / ".env").write_text(f"OPAL_ADMIN_PASSWORD={password}")

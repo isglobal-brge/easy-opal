@@ -2,7 +2,7 @@ import click
 import subprocess
 import shutil
 from rich.console import Console
-from rich.prompt import Confirm
+from rich.prompt import Confirm, Prompt
 
 console = Console()
 
@@ -42,6 +42,56 @@ def find_uv():
         if os.path.isfile(path) and os.access(path, os.X_OK):
             return path
     return None
+
+def pull_opal_image():
+    """Pull the Opal Docker image for the currently configured version."""
+    from src.core.config_manager import load_config
+    from src.core.docker_manager import pull_docker_image
+
+    config = load_config()
+    opal_version = config.get("opal_version", "latest")
+    image_name = f"obiba/opal:{opal_version}"
+
+    console.print(f"[cyan]Configured Opal version:[/cyan] [bold]{opal_version}[/bold]")
+    console.print(f"[cyan]Pulling Docker image:[/cyan] [bold]{image_name}[/bold]\n")
+
+    if pull_docker_image(image_name):
+        console.print("\n[green]Opal image updated successfully.[/green]")
+        console.print("[yellow]Run './easy-opal restart' to apply the update.[/yellow]")
+    else:
+        console.print("\n[bold red]Failed to pull the Opal image.[/bold red]")
+
+
+def update_opal_version(new_version: str):
+    """Update the Opal version in config and pull the new image."""
+    from src.core.config_manager import load_config, save_config, create_snapshot
+    from src.core.docker_manager import generate_compose_file, pull_docker_image
+
+    config = load_config()
+    current_version = config.get("opal_version", "latest")
+
+    console.print(f"[cyan]Current Opal version:[/cyan] [bold]{current_version}[/bold]")
+    console.print(f"[cyan]New Opal version:[/cyan] [bold]{new_version}[/bold]\n")
+
+    if new_version == current_version:
+        console.print("[yellow]Already on this version. Pulling latest image...[/yellow]")
+    else:
+        # Create snapshot before changing version
+        create_snapshot(f"Opal version change: {current_version} -> {new_version}")
+        config["opal_version"] = new_version
+        save_config(config)
+        generate_compose_file()
+        console.print("[green]Configuration updated.[/green]")
+
+    # Pull the new image
+    image_name = f"obiba/opal:{new_version}"
+    if pull_docker_image(image_name):
+        console.print("\n[green]Opal updated successfully.[/green]")
+        console.print("[yellow]Run './easy-opal restart' to apply the update.[/yellow]")
+    else:
+        console.print("\n[bold red]Failed to pull the Opal image. The version may not exist.[/bold red]")
+        console.print("[yellow]Check available versions at: https://hub.docker.com/r/obiba/opal/tags[/yellow]")
+
 
 def update_dependencies():
     """Check and update Python dependencies if uv is available."""
@@ -94,8 +144,20 @@ def update_dependencies():
         return False
 
 @click.command()
-def update():
+@click.option("--opal", is_flag=True, help="Also update/pull the Opal Docker image to the configured version.")
+@click.option("--opal-version", help="Update Opal to a specific version (e.g., latest, 5.1, 5.0).")
+def update(opal, opal_version):
     """Checks for and applies updates from the official git repository."""
+
+    # Handle Opal version update if requested
+    if opal_version:
+        update_opal_version(opal_version)
+        return
+
+    if opal:
+        pull_opal_image()
+        return
+
     console.print("[cyan]Checking for updates...[/cyan]")
 
     # 1. Safety Check: Ensure we are on the 'main' branch.

@@ -90,6 +90,11 @@ def generate_compose_file():
         if service.get("container_name"):
             service["container_name"] = service["container_name"].replace("${PROJECT_NAME}", config["stack_name"])
 
+    # --- Set Opal Version ---
+    opal_version = config.get("opal_version", "latest")
+    compose_data["services"]["opal"]["image"] = f"obiba/opal:{opal_version}"
+    console.print(f"[dim]Using Opal version: {opal_version}[/dim]")
+
     # --- Configure Opal Service ---
     opal_env = compose_data["services"]["opal"]["environment"]
     rock_hosts = [f"http://{p['name']}:8085" for p in config.get("profiles", [])]
