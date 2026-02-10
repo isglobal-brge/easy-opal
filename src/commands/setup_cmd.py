@@ -58,15 +58,25 @@ def display_header():
     print("")
 
 def is_port_in_use(port: int) -> bool:
-    """Checks if a local TCP port is already in use."""
+    """Checks if a local TCP port is already in use using a hybrid approach."""
+    # Method 1: Try to connect to see if something is actively listening
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(1)
         try:
-            # We try to bind to all interfaces on that port
+            s.connect(("127.0.0.1", port))
+            return True  # Connection succeeded, something is definitely listening
+        except (ConnectionRefusedError, socket.timeout, OSError):
+            pass  # Nothing listening on localhost, but verify with bind check
+
+    # Method 2: Try to bind with SO_REUSEADDR
+    # This catches services bound to specific interfaces and properly handles TIME_WAIT
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
             s.bind(("0.0.0.0", port))
-            return False
+            return False  # We can bind, port is available
         except OSError:
-            # This exception (e.g., EADDRINUSE) means the port is taken
-            return True
+            return True  # Can't bind even with SO_REUSEADDR, port is truly in use
 
 def find_free_port(start_port: int, reserved_ports: list = None) -> int:
     """Find the next available port starting from start_port."""
