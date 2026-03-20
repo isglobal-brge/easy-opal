@@ -90,10 +90,18 @@ def generate_compose_file():
         if service.get("container_name"):
             service["container_name"] = service["container_name"].replace("${PROJECT_NAME}", config["stack_name"])
 
-    # --- Set Opal Version ---
+    # --- Set Service Versions ---
     opal_version = config.get("opal_version", "latest")
     compose_data["services"]["opal"]["image"] = f"obiba/opal:{opal_version}"
     console.print(f"[dim]Using Opal version: {opal_version}[/dim]")
+
+    mongo_version = config.get("mongo_version", "latest")
+    compose_data["services"]["mongo"]["image"] = f"mongo:{mongo_version}"
+    console.print(f"[dim]Using MongoDB version: {mongo_version}[/dim]")
+
+    if "nginx" in compose_data["services"]:
+        nginx_version = config.get("nginx_version", "latest")
+        compose_data["services"]["nginx"]["image"] = f"nginx:{nginx_version}"
 
     # --- Configure Opal Service ---
     opal_env = compose_data["services"]["opal"]["environment"]
@@ -115,16 +123,18 @@ def generate_compose_file():
         db_user = db.get("user", "opal")
         db_password = db.get("password")
         db_database = db.get("database", "opaldata")
-        
+        db_version = db.get("version")
+
         # Define service name based on instance name
         service_name = db_name
         volume_name = f"{db_name}_data"
         container_name = f"{config['stack_name']}-{db_name}"
-        
+
         # Configure service based on database type
         if db_type == "postgres":
+            pg_version = db_version or "latest"
             compose_data["services"][service_name] = {
-                "image": "postgres:15",
+                "image": f"postgres:{pg_version}",
                 "container_name": container_name,
                 "restart": "always",
                 "environment": {
@@ -144,11 +154,12 @@ def generate_compose_file():
             opal_env[f"{env_prefix}_USER"] = db_user
             opal_env[f"{env_prefix}_PASSWORD"] = db_password
             
-            console.print(f"[green]PostgreSQL instance '{db_name}' added on port {db_port}.[/green]")
-        
+            console.print(f"[green]PostgreSQL {pg_version} instance '{db_name}' added on port {db_port}.[/green]")
+
         elif db_type == "mysql":
+            my_version = db_version or "latest"
             compose_data["services"][service_name] = {
-                "image": "mysql:8",
+                "image": f"mysql:{my_version}",
                 "container_name": container_name,
                 "restart": "always",
                 "environment": {
@@ -169,11 +180,12 @@ def generate_compose_file():
             opal_env[f"{env_prefix}_USER"] = db_user
             opal_env[f"{env_prefix}_PASSWORD"] = db_password
             
-            console.print(f"[green]MySQL instance '{db_name}' added on port {db_port}.[/green]")
-        
+            console.print(f"[green]MySQL {my_version} instance '{db_name}' added on port {db_port}.[/green]")
+
         elif db_type == "mariadb":
+            maria_version = db_version or "latest"
             compose_data["services"][service_name] = {
-                "image": "mariadb:11",
+                "image": f"mariadb:{maria_version}",
                 "container_name": container_name,
                 "restart": "always",
                 "environment": {
@@ -194,7 +206,7 @@ def generate_compose_file():
             opal_env[f"{env_prefix}_USER"] = db_user
             opal_env[f"{env_prefix}_PASSWORD"] = db_password
             
-            console.print(f"[green]MariaDB instance '{db_name}' added on port {db_port}.[/green]")
+            console.print(f"[green]MariaDB {maria_version} instance '{db_name}' added on port {db_port}.[/green]")
         
         # Add volume for this database
         compose_data["volumes"][volume_name] = None

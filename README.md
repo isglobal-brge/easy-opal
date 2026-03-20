@@ -117,7 +117,9 @@ The main command to configure or re-configure a stack. Running it without flags 
 -   `--ssl-cert-path TEXT`: Path to your certificate file (for 'manual' strategy).
 -   `--ssl-key-path TEXT`: Path to your private key file (for 'manual' strategy).
 -   `--ssl-email TEXT`: Email for Let's Encrypt renewal notices.
--   `--database TEXT`: Add a database instance. Format: `type:name:port:user:password` (e.g., `postgres:maindb:5432:opal:pass123`). Can be used multiple times to add multiple database instances, including multiple instances of the same type.
+-   `--mongo-version TEXT`: MongoDB Docker image version/tag (e.g., `latest`, `7.0`, `8.0`). Default: `latest`.
+-   `--nginx-version TEXT`: NGINX Docker image version/tag (e.g., `latest`, `1.27`). Default: `latest`.
+-   `--database TEXT`: Add a database instance. Format: `type:name:port:user:password[:version]` (e.g., `postgres:maindb:5432:opal:pass123` or `postgres:maindb:5432:opal:pass123:16`). Version is optional (defaults to `latest`). Can be used multiple times.
 -   `--yes`: Bypasses all interactive prompts. Essential for scripting.
 -   `--reset-containers`: Non-interactively stops and removes Docker containers.
 -   `--reset-volumes`: Non-interactively deletes Docker volumes (all application data).
@@ -138,16 +140,27 @@ The main command to configure or re-configure a stack. Running it without flags 
   --yes \
   --reset-containers
 
-# Setup with multiple database instances
+# Setup with custom service versions
+./easy-opal setup \
+  --stack-name new-stack \
+  --host localhost \
+  --port 8443 \
+  --password "newpass" \
+  --ssl-strategy "self-signed" \
+  --opal-version "5.1" \
+  --mongo-version "8.0" \
+  --yes
+
+# Setup with multiple database instances (with custom versions)
 ./easy-opal setup \
   --stack-name data-stack \
   --host localhost \
   --port 8443 \
   --password "mypass" \
   --ssl-strategy "self-signed" \
-  --database postgres:analytics:5432:opal:pgpass1 \
+  --database postgres:analytics:5432:opal:pgpass1:16 \
   --database postgres:warehouse:5433:admin:pgpass2 \
-  --database mysql:app:3306:opal:mysqlpass \
+  --database mysql:app:3306:opal:mysqlpass:9 \
   --yes
 ```
 
@@ -240,9 +253,14 @@ Run comprehensive health diagnostics on your easy-opal installation. This comman
 
 ### `config`
 
-Manage the stack's configuration and snapshots.
+Manage the stack's configuration, versions, and snapshots.
 
 -   `./easy-opal config show`: Displays the current `config.json`.
+-   `./easy-opal config show-version`: Shows all configured Docker image versions.
+    -   `--service TEXT`: Show a specific service (e.g., `opal`, `mongo`, `nginx`, or a database instance name).
+-   `./easy-opal config change-version [VERSION]`: Changes a Docker image version.
+    -   `--service TEXT`: Target service (e.g., `opal`, `mongo`, `nginx`, or a database instance name). Default: `opal`.
+    -   `--pull`: Pull the new Docker image immediately.
 -   `./easy-opal config change-password [PASSWORD]`: Changes the Opal administrator password.
 -   `./easy-opal config change-port [PORT]`: Changes the external port for NGINX.
 -   `./easy-opal config restore [SNAPSHOT_ID]`: Restore a configuration from a snapshot.
@@ -299,25 +317,31 @@ When running `./easy-opal setup` interactively, you'll be prompted to add databa
 1. Select the database type (postgres, mysql, mariadb)
 2. Provide a unique instance name (e.g., `analytics`, `warehouse-1`)
 3. Configure the port (automatically suggests a free port)
-4. Set the username (defaults to `opal`)
-5. Provide a password
-6. Repeat to add more instances or select `done` to continue
+4. Choose the image version/tag (defaults to `latest`)
+5. Set the username (defaults to `opal`)
+6. Provide a password
+7. Repeat to add more instances or select `done` to continue
 
 ### Non-Interactive Configuration
 
-Use the `--database` flag with the format: `type:name:port:user:password`
+Use the `--database` flag with the format: `type:name:port:user:password[:version]`
+
+The version field is optional. If omitted, `latest` is used for all database types.
 
 **Examples:**
 
 ```bash
-# Single PostgreSQL instance
+# Single PostgreSQL instance (default version)
 ./easy-opal setup --database postgres:maindb:5432:opal:mypassword --yes
 
-# Multiple instances of different types
+# Single PostgreSQL instance (specific version)
+./easy-opal setup --database postgres:maindb:5432:opal:mypassword:16 --yes
+
+# Multiple instances of different types with custom versions
 ./easy-opal setup \
-  --database postgres:analytics:5432:opal:pass1 \
-  --database mysql:app:3306:opal:pass2 \
-  --database mariadb:archive:3307:opal:pass3 \
+  --database postgres:analytics:5432:opal:pass1:16 \
+  --database mysql:app:3306:opal:pass2:9 \
+  --database mariadb:archive:3307:opal:pass3:11 \
   --yes
 
 # Multiple instances of the same type

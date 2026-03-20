@@ -67,59 +67,149 @@ def change_port(port):
 
 @config.command(name="change-version")
 @click.argument("version", required=False)
+@click.option("--service", default="opal", help="The service to change the version for (opal, mongo, nginx, or a database instance name). Default: opal.")
 @click.option("--pull", is_flag=True, help="Pull the new Docker image immediately.")
-def change_version(version, pull):
-    """Changes the Opal Docker image version."""
+def change_version(version, service, pull):
+    """Changes a Docker image version. Use --service to target a specific service or database instance."""
     from src.core.docker_manager import pull_docker_image
 
     cfg = load_config()
-    current_version = cfg.get("opal_version", "latest")
 
-    console.print(f"[cyan]Current Opal version:[/cyan] [bold]{current_version}[/bold]")
-    console.print("[dim]Available versions: latest, 5.1, 5.0, 4.7, etc.[/dim]")
-    console.print("[dim]See all versions at: https://hub.docker.com/r/obiba/opal/tags[/dim]\n")
+    # Map core service names to config keys and image names
+    service_map = {
+        "opal":  {"config_key": "opal_version",  "image_prefix": "obiba/opal", "hub": "https://hub.docker.com/r/obiba/opal/tags"},
+        "mongo": {"config_key": "mongo_version", "image_prefix": "mongo",      "hub": "https://hub.docker.com/_/mongo/tags"},
+        "nginx": {"config_key": "nginx_version", "image_prefix": "nginx",      "hub": "https://hub.docker.com/_/nginx/tags"},
+    }
 
-    new_version = version
-    if not new_version:
-        new_version = Prompt.ask("Enter the new Opal version", default=current_version)
+    db_images = {"postgres": "postgres", "mysql": "mysql", "mariadb": "mariadb"}
 
-    new_version = new_version.strip()
-    if not new_version:
-        console.print("[bold red]Version cannot be empty.[/bold red]")
-        return
+    if service in service_map:
+        # Core service version change
+        svc = service_map[service]
+        current_version = cfg.get(svc["config_key"], "latest")
 
-    if new_version == current_version:
-        console.print("[yellow]Version is already set to this value.[/yellow]")
-        if not pull:
+        console.print(f"[cyan]Current {service} version:[/cyan] [bold]{current_version}[/bold]")
+        console.print(f"[dim]See available versions at: {svc['hub']}[/dim]\n")
+
+        new_version = version
+        if not new_version:
+            new_version = Prompt.ask(f"Enter the new {service} version", default=current_version)
+
+        new_version = new_version.strip()
+        if not new_version:
+            console.print("[bold red]Version cannot be empty.[/bold red]")
             return
 
-    # Create a snapshot before making changes
-    create_snapshot_from_manager(f"Changed Opal version from {current_version} to {new_version}")
-    cfg["opal_version"] = new_version
-    save_config(cfg)
-    generate_compose_file()
+        if new_version == current_version:
+            console.print("[yellow]Version is already set to this value.[/yellow]")
+            if not pull:
+                return
 
-    console.print(f"[green]Opal version updated to:[/green] [bold]{new_version}[/bold]")
+        create_snapshot_from_manager(f"Changed {service} version from {current_version} to {new_version}")
+        cfg[svc["config_key"]] = new_version
+        save_config(cfg)
+        generate_compose_file()
 
-    if pull:
-        image_name = f"obiba/opal:{new_version}"
-        console.print(f"\n[cyan]Pulling new image...[/cyan]")
-        if pull_docker_image(image_name):
-            console.print("[green]Image pulled successfully.[/green]")
-        else:
-            console.print("[bold red]Failed to pull the image. The version may not exist.[/bold red]")
-            console.print("[yellow]Check available versions at: https://hub.docker.com/r/obiba/opal/tags[/yellow]")
+        console.print(f"[green]{service.capitalize()} version updated to:[/green] [bold]{new_version}[/bold]")
+
+        if pull:
+            image_name = f"{svc['image_prefix']}:{new_version}"
+            console.print(f"\n[cyan]Pulling new image...[/cyan]")
+            if pull_docker_image(image_name):
+                console.print("[green]Image pulled successfully.[/green]")
+            else:
+                console.print("[bold red]Failed to pull the image. The version may not exist.[/bold red]")
+                console.print(f"[yellow]Check available versions at: {svc['hub']}[/yellow]")
+                return
+    else:
+        # Try to find a database instance by name
+        databases = cfg.get("databases", [])
+        db_entry = next((db for db in databases if db["name"] == service), None)
+
+        if not db_entry:
+            available = list(service_map.keys()) + [db["name"] for db in databases]
+            console.print(f"[bold red]Unknown service '{service}'.[/bold red]")
+            console.print(f"[dim]Available services: {', '.join(available)}[/dim]")
             return
+
+        current_version = db_entry.get("version", "latest")
+        db_type = db_entry["type"]
+        image_prefix = db_images.get(db_type, db_type)
+
+        console.print(f"[cyan]Current {service} ({db_type}) version:[/cyan] [bold]{current_version}[/bold]")
+        console.print(f"[dim]See available versions at: https://hub.docker.com/_/{image_prefix}/tags[/dim]\n")
+
+        new_version = version
+        if not new_version:
+            new_version = Prompt.ask(f"Enter the new {service} version", default=current_version)
+
+        new_version = new_version.strip()
+        if not new_version:
+            console.print("[bold red]Version cannot be empty.[/bold red]")
+            return
+
+        if new_version == current_version:
+            console.print("[yellow]Version is already set to this value.[/yellow]")
+            if not pull:
+                return
+
+        create_snapshot_from_manager(f"Changed {service} ({db_type}) version from {current_version} to {new_version}")
+        db_entry["version"] = new_version
+        save_config(cfg)
+        generate_compose_file()
+
+        console.print(f"[green]{service} ({db_type}) version updated to:[/green] [bold]{new_version}[/bold]")
+
+        if pull:
+            image_name = f"{image_prefix}:{new_version}"
+            console.print(f"\n[cyan]Pulling new image...[/cyan]")
+            if pull_docker_image(image_name):
+                console.print("[green]Image pulled successfully.[/green]")
+            else:
+                console.print("[bold red]Failed to pull the image. The version may not exist.[/bold red]")
+                return
 
     console.print("\nRun './easy-opal restart' to apply the changes.")
 
 @config.command(name="show-version")
-def show_version():
-    """Shows the current Opal version configured."""
+@click.option("--service", default="all", help="Show version for a specific service or 'all'.")
+def show_version(service):
+    """Shows the configured Docker image versions."""
     cfg = load_config()
-    current_version = cfg.get("opal_version", "latest")
-    console.print(f"[cyan]Current Opal version:[/cyan] [bold]{current_version}[/bold]")
-    console.print(f"[dim]Docker image: obiba/opal:{current_version}[/dim]")
+
+    services = {
+        "opal":  ("opal_version",  "obiba/opal"),
+        "mongo": ("mongo_version", "mongo"),
+        "nginx": ("nginx_version", "nginx"),
+    }
+
+    if service == "all":
+        targets = services
+    elif service in services:
+        targets = {service: services[service]}
+    else:
+        targets = services  # Show all core + filter db below
+
+    table = Table(title="Service Versions")
+    table.add_column("Service", style="cyan")
+    table.add_column("Version", style="bold")
+    table.add_column("Docker Image", style="dim")
+
+    for svc_name, (config_key, image_prefix) in targets.items():
+        ver = cfg.get(config_key, "latest")
+        table.add_row(svc_name.capitalize(), ver, f"{image_prefix}:{ver}")
+
+    # Show database versions
+    db_images = {"postgres": "postgres", "mysql": "mysql", "mariadb": "mariadb"}
+    for db in cfg.get("databases", []):
+        if service not in ("all",) and service != db["name"]:
+            continue
+        ver = db.get("version", "latest")
+        img = db_images.get(db["type"], db["type"])
+        table.add_row(f"{db['type'].capitalize()} ({db['name']})", ver, f"{img}:{ver}")
+
+    console.print(table)
 
 @config.command(name="show")
 def show_config():

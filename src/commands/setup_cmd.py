@@ -116,18 +116,21 @@ def get_database_defaults(db_type: str) -> dict:
             'default_port': 5432,
             'default_user': 'opal',
             'default_db_name': 'opaldata',
+            'default_version': 'latest',
             'display_name': 'PostgreSQL'
         },
         'mysql': {
             'default_port': 3306,
             'default_user': 'opal',
             'default_db_name': 'opaldata',
+            'default_version': 'latest',
             'display_name': 'MySQL'
         },
         'mariadb': {
             'default_port': 3307,
             'default_user': 'opal',
             'default_db_name': 'opaldata',
+            'default_version': 'latest',
             'display_name': 'MariaDB'
         }
     }
@@ -166,51 +169,60 @@ def configure_database_interactive(db_type: str, existing_databases: list, used_
     port_str = Prompt.ask(f"  Port", default=str(default_port))
     port = int(port_str)
     
+    # Version
+    version = Prompt.ask(f"  Image version/tag", default=defaults['default_version'])
+
     # Username
     user = Prompt.ask(f"  Username", default=defaults['default_user'])
-    
+
     # Password with validation
     while True:
         password = Prompt.ask(f"  Password", password=True)
         if password.strip():
             break
         console.print("  [bold red]Password cannot be empty. Please try again.[/bold red]")
-    
+
     return {
         'type': db_type,
         'name': name,
         'port': port,
+        'version': version,
         'user': user,
         'password': password,
         'database': defaults['default_db_name']
     }
 
 def parse_database_spec(spec: str) -> dict:
-    """Parse a database specification string: type:name:port:user:password"""
+    """Parse a database specification string: type:name:port:user:password[:version]"""
     parts = spec.split(':')
-    
-    if len(parts) != 5:
-        raise ValueError(f"Invalid database spec format: '{spec}'. Expected: type:name:port:user:password")
-    
-    db_type, name, port_str, user, password = parts
-    
+
+    if len(parts) not in (5, 6):
+        raise ValueError(f"Invalid database spec format: '{spec}'. Expected: type:name:port:user:password[:version]")
+
+    db_type = parts[0]
+    name = parts[1]
+    port_str = parts[2]
+    user = parts[3]
+    password = parts[4]
+    version = parts[5] if len(parts) == 6 else None
+
     if db_type not in ['postgres', 'mysql', 'mariadb']:
         raise ValueError(f"Invalid database type: '{db_type}'. Must be one of: postgres, mysql, mariadb")
-    
+
     try:
         port = int(port_str)
     except ValueError:
         raise ValueError(f"Invalid port number: '{port_str}'")
-    
+
     if not name.strip():
         raise ValueError("Database name cannot be empty")
-    
+
     if not password.strip():
         raise ValueError("Database password cannot be empty")
-    
+
     defaults = get_database_defaults(db_type)
-    
-    return {
+
+    result = {
         'type': db_type,
         'name': name,
         'port': port,
@@ -218,6 +230,9 @@ def parse_database_spec(spec: str) -> dict:
         'password': password,
         'database': defaults['default_db_name']
     }
+    if version:
+        result['version'] = version
+    return result
 
 @click.command()
 @click.option('--stack-name', help='The name of the Docker stack.')
@@ -231,6 +246,8 @@ def parse_database_spec(spec: str) -> dict:
 @click.option("--ssl-email", help="Email for Let's Encrypt renewal notices (for 'letsencrypt' strategy).")
 @click.option('--database', 'databases_spec', multiple=True, help='Add database instance. Format: type:name:port:user:password (e.g., postgres:maindb:5432:opal:pass123). Can be used multiple times.')
 @click.option('--opal-version', help='Opal Docker image version/tag (e.g., latest, 5.1, 5.0). Default: latest.')
+@click.option('--mongo-version', help='MongoDB Docker image version/tag (e.g., latest, 7.0, 8.0). Default: latest.')
+@click.option('--nginx-version', help='NGINX Docker image version/tag (e.g., latest, 1.27). Default: latest.')
 @click.option("--yes", is_flag=True, help="Bypass confirmation prompts for a non-interactive setup.")
 @click.option('--reset-containers', is_flag=True, help='[Non-interactive] Stop and remove Docker containers and networks.')
 @click.option('--reset-volumes', is_flag=True, help='[Non-interactive] Delete Docker volumes (application data).')
@@ -239,7 +256,8 @@ def parse_database_spec(spec: str) -> dict:
 @click.option('--reset-secrets', is_flag=True, help='[Non-interactive] Reset secrets file during setup.')
 def setup(
     stack_name, hosts, port, http_port, password, ssl_strategy, ssl_cert_path,
-    ssl_key_path, ssl_email, databases_spec, opal_version, yes, reset_containers, reset_volumes,
+    ssl_key_path, ssl_email, databases_spec, opal_version, mongo_version,
+    nginx_version, yes, reset_containers, reset_volumes,
     reset_configs, reset_certs, reset_secrets
 ):
     """Guides you through the initial setup or reconfigures the environment."""
@@ -324,13 +342,22 @@ def setup(
         console.print("[cyan]1. General Configuration[/cyan]")
         config["stack_name"] = Prompt.ask("Enter the stack name", default=config["stack_name"])
 
-        # --- Opal Version Selection ---
-        console.print("\n[cyan]Opal Version[/cyan]")
-        console.print("[dim]Available versions: latest (recommended), or specific versions like 5.1, 5.0, 4.7, etc.[/dim]")
-        console.print("[dim]See all versions at: https://hub.docker.com/r/obiba/opal/tags[/dim]")
-        version_input = Prompt.ask("Enter Opal version", default=config.get("opal_version", "latest"))
+        # --- Service Version Selection ---
+        console.print("\n[cyan]Service Versions[/cyan]")
+        console.print("[dim]All services default to 'latest'. Press Enter to accept, or specify a version/tag.[/dim]")
+
+        console.print("\n[dim]Opal versions: https://hub.docker.com/r/obiba/opal/tags[/dim]")
+        version_input = Prompt.ask("  Opal version", default=config.get("opal_version", "latest"))
         config["opal_version"] = version_input.strip() if version_input.strip() else "latest"
-        
+
+        console.print("[dim]MongoDB versions: https://hub.docker.com/_/mongo/tags[/dim]")
+        mongo_input = Prompt.ask("  MongoDB version", default=config.get("mongo_version", "latest"))
+        config["mongo_version"] = mongo_input.strip() if mongo_input.strip() else "latest"
+
+        if Confirm.ask("\n[dim]Customize NGINX version? (usually not needed)[/dim]", default=False):
+            nginx_input = Prompt.ask("  NGINX version", default=config.get("nginx_version", "latest"))
+            config["nginx_version"] = nginx_input.strip() if nginx_input.strip() else "latest"
+
         # --- Collect SSL Strategy ---
         console.print("\n[cyan]2. SSL Certificate Configuration[/cyan]")
         strategy = Prompt.ask(
@@ -467,6 +494,8 @@ def setup(
         if port: config["opal_external_port"] = port
         if http_port: config["opal_http_port"] = http_port
         if opal_version: config["opal_version"] = opal_version
+        if mongo_version: config["mongo_version"] = mongo_version
+        if nginx_version: config["nginx_version"] = nginx_version
         if password:
             # Save password to .env file for non-interactive setup
             (Path.cwd() / ".env").write_text(f"OPAL_ADMIN_PASSWORD={password}")
