@@ -78,6 +78,57 @@ def plan(ctx):
 
 
 @click.command()
+@click.pass_context
+def validate(ctx):
+    """Validate configuration without starting anything."""
+    instance: InstanceContext = ctx.obj["instance"]
+    if not config_exists(instance):
+        error("No configuration found. Run 'easy-opal setup' first.")
+        return
+
+    config = load_config(instance)
+
+    issues = []
+
+    # Check hosts
+    if config.ssl.strategy != "none" and not config.hosts:
+        issues.append("No hosts configured (required for SSL)")
+
+    # Check Let's Encrypt email
+    if config.ssl.strategy == "letsencrypt" and not config.ssl.le_email:
+        issues.append("Let's Encrypt email not set")
+
+    # Check Mica requires Agate
+    if config.mica.enabled and not config.agate.enabled:
+        issues.append("Mica is enabled but Agate is not (Mica requires Agate)")
+
+    # Check external databases have host
+    for db in config.databases:
+        if db.external and not db.host:
+            issues.append(f"External database '{db.name}' has no host configured")
+
+    # Check SMTP when mode is smtp
+    if config.agate.enabled and config.agate.mail_mode == "smtp":
+        if not config.agate.smtp.host:
+            issues.append("SMTP mode selected but no SMTP host configured")
+
+    # Try generating compose
+    try:
+        from src.core.docker import generate_compose
+        generate_compose(config, instance)
+        success("Compose file generated successfully.")
+    except Exception as e:
+        issues.append(f"Compose generation failed: {e}")
+
+    if issues:
+        error(f"{len(issues)} issue(s) found:")
+        for issue in issues:
+            console.print(f"  - {issue}")
+    else:
+        success("Configuration is valid.")
+
+
+@click.command()
 @click.option("--volumes", is_flag=True, help="Also delete Docker volumes (data loss).")
 @click.option("--yes", is_flag=True, help="Skip confirmation.")
 @click.pass_context

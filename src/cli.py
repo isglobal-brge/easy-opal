@@ -50,7 +50,7 @@ def main(ctx, instance_name):
 # Register commands
 from src.commands.instances import instance
 from src.commands.setup import setup
-from src.commands.lifecycle import up, down, restart, status, reset, plan
+from src.commands.lifecycle import up, down, restart, status, reset, plan, validate
 from src.commands.config import config
 from src.commands.certs import cert
 from src.commands.profiles import profile
@@ -69,6 +69,7 @@ main.add_command(restart)
 main.add_command(status)
 main.add_command(reset)
 main.add_command(plan)
+main.add_command(validate)
 main.add_command(config)
 main.add_command(cert)
 main.add_command(profile)

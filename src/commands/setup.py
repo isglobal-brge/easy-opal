@@ -164,11 +164,12 @@ def _collect_optional_services(config: OpalConfig) -> OpalConfig:
 @click.option("--watchtower-interval", type=int, help="Watchtower interval in hours.")
 @click.option("--with-agate", is_flag=True, default=False, help="Enable Agate authentication.")
 @click.option("--with-mica", is_flag=True, default=False, help="Enable Mica data portal (implies Agate).")
+@click.option("--preset", help="Apply a preset (opal-dev, opal-prod, opal-proxy, opal-agate, obiba-full).")
 @click.option("--yes", is_flag=True, help="Non-interactive mode.")
 @click.pass_context
 def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
           ssl_cert, ssl_key, opal_version, mongo_version, databases,
-          enable_watchtower, watchtower_interval, with_agate, with_mica, yes):
+          enable_watchtower, watchtower_interval, with_agate, with_mica, preset, yes):
     """Configure a new easy-opal deployment."""
     instance: InstanceContext = ctx.obj["instance"]
 
@@ -179,6 +180,13 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
         return
 
     config = OpalConfig()
+
+    # Apply preset if specified
+    if preset:
+        from src.presets import apply_preset
+        config = apply_preset(config, preset)
+        info(f"Preset '{preset}' applied.")
+
     is_interactive = not yes
 
     if is_interactive:

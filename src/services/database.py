@@ -16,6 +16,11 @@ class DatabaseService:
         self, config: OpalConfig, ctx: InstanceContext, secrets: dict[str, str]
     ) -> dict:
         db = self.db
+
+        # External databases: no container, only env vars for Opal
+        if db.external:
+            return {}
+
         container = f"{config.stack_name}-{db.name}"
         volume = f"{config.stack_name}-{db.name}-data"
         pw_key = f"{db.name.upper().replace('-', '_')}_PASSWORD"
@@ -90,13 +95,15 @@ class DatabaseService:
             }
 
     def compose_volumes(self, config: OpalConfig) -> dict:
+        if self.db.external:
+            return {}
         return {f"{config.stack_name}-{self.db.name}-data": None}
 
     def opal_env_vars(self, config: OpalConfig, secrets: dict[str, str]) -> dict:
         db = self.db
         prefix = db.name.upper().replace("-", "_")
         pw_key = f"{prefix}_PASSWORD"
-        password = secrets[pw_key]
+        password = secrets.get(pw_key, "")
 
         internal_port = {
             DatabaseType.POSTGRES: "5432",
@@ -104,9 +111,13 @@ class DatabaseService:
             DatabaseType.MARIADB: "3306",
         }
 
+        # External: use user-provided host and port
+        host = db.host if db.external else db.name
+        port = str(db.port) if db.external else internal_port[db.type]
+
         return {
-            f"{prefix}_HOST": db.name,
-            f"{prefix}_PORT": internal_port[db.type],
+            f"{prefix}_HOST": host,
+            f"{prefix}_PORT": port,
             f"{prefix}_DATABASE": db.database,
             f"{prefix}_USER": db.user,
             f"{prefix}_PASSWORD": password,

@@ -17,6 +17,8 @@ class DatabaseConfig(BaseModel):
     user: str = "opal"
     database: str = "opaldata"
     version: str = "latest"
+    external: bool = False
+    host: str = ""  # Only for external databases
 
 
 class ProfileConfig(BaseModel):
