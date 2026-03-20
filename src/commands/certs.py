@@ -33,8 +33,12 @@ def regenerate(ctx):
 
     elif config.ssl.strategy == SSLStrategy.LETSENCRYPT:
         info("Renewing Let's Encrypt certificate...")
-        run_compose(["run", "--rm", "certbot", "renew"], instance, config.stack_name)
-        run_compose(["exec", "nginx", "nginx", "-s", "reload"], instance, config.stack_name)
+        if not run_compose(["run", "--rm", "certbot", "renew"], instance, config.stack_name):
+            error("Certificate renewal failed.")
+            return
+        if not run_compose(["exec", "nginx", "nginx", "-s", "reload"], instance, config.stack_name):
+            warning("Could not reload NGINX. Restart the stack manually.")
+            return
         success("Certificate renewed.")
 
     elif config.ssl.strategy == SSLStrategy.MANUAL:

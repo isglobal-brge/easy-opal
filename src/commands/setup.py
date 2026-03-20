@@ -121,6 +121,8 @@ def _collect_watchtower(config: OpalConfig) -> OpalConfig:
 @click.option("--http-port", type=int, help="HTTP port for 'none' strategy.")
 @click.option("--ssl-strategy", type=click.Choice(["self-signed", "letsencrypt", "manual", "none"]))
 @click.option("--ssl-email", help="Let's Encrypt email.")
+@click.option("--ssl-cert", help="Path to SSL certificate (for manual strategy).")
+@click.option("--ssl-key", help="Path to SSL private key (for manual strategy).")
 @click.option("--opal-version", help="Opal image tag.")
 @click.option("--mongo-version", help="MongoDB image tag.")
 @click.option("--database", "databases", multiple=True, help="Database spec: type:name:port:user[:version].")
@@ -130,8 +132,8 @@ def _collect_watchtower(config: OpalConfig) -> OpalConfig:
 @click.option("--yes", is_flag=True, help="Non-interactive mode.")
 @click.pass_context
 def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
-          opal_version, mongo_version, databases, enable_watchtower,
-          watchtower_interval, yes):
+          ssl_cert, ssl_key, opal_version, mongo_version, databases,
+          enable_watchtower, watchtower_interval, yes):
     """Configure a new easy-opal deployment."""
     instance: InstanceContext = ctx.obj["instance"]
 
@@ -196,9 +198,27 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
     console.print(f"\n[bold]Admin password:[/bold] {admin_pw}")
     dim("Save this password — it won't be shown again.")
 
-    # Generate SSL certs if self-signed
+    # Generate SSL certs
     if config.ssl.strategy == SSLStrategy.SELF_SIGNED:
         generate_server_cert(instance, config)
+    elif config.ssl.strategy == SSLStrategy.MANUAL:
+        import shutil
+        if is_interactive:
+            from rich.prompt import Prompt as P
+            cert_src = P.ask("Path to your SSL certificate file (.crt/.pem)")
+            key_src = P.ask("Path to your SSL private key file (.key)")
+        else:
+            cert_src = click.get_current_context().params.get("ssl_cert") or ""
+            key_src = click.get_current_context().params.get("ssl_key") or ""
+
+        from pathlib import Path
+        if not Path(cert_src).is_file() or not Path(key_src).is_file():
+            error("Certificate or key file not found.")
+            return
+        instance.certs_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy(cert_src, instance.certs_dir / "opal.crt")
+        shutil.copy(key_src, instance.certs_dir / "opal.key")
+        success("Certificates copied.")
 
     # Generate NGINX config
     generate_nginx_config(config, instance)
@@ -211,10 +231,15 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
         generate_compose(config, instance)
         run_compose(["up", "-d", "nginx"], instance, config.stack_name)
 
-        domain_args = " ".join(f"-d {d}" for d in config.hosts)
-        email_arg = f"--email {config.ssl.le_email}"
-        certbot_cmd = f"run --rm certbot certonly --webroot --webroot-path /var/www/certbot {email_arg} {domain_args} --agree-tos --no-eff-email --force-renewal"
-        cert_ok = run_compose(certbot_cmd.split(), instance, config.stack_name)
+        certbot_args = [
+            "run", "--rm", "certbot", "certonly", "--webroot",
+            "--webroot-path", "/var/www/certbot",
+            "--email", config.ssl.le_email,
+            "--agree-tos", "--no-eff-email", "--force-renewal",
+        ]
+        for domain in config.hosts:
+            certbot_args.extend(["-d", domain])
+        cert_ok = run_compose(certbot_args, instance, config.stack_name)
         run_compose(["stop", "nginx"], instance, config.stack_name)
 
         if not cert_ok:

@@ -2,7 +2,6 @@
 
 import subprocess
 import sys
-import json as json_mod
 
 import yaml
 

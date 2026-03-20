@@ -18,9 +18,9 @@ class RockService:
         cluster = "default" if service_name == "rock" else service_name
         volume_name = f"{config.stack_name}-{service_name}-data"
 
-        rock_admin_pw = secrets.get("ROCK_ADMINISTRATOR_PASSWORD", "password")
-        rock_manager_pw = secrets.get("ROCK_MANAGER_PASSWORD", "password")
-        rock_user_pw = secrets.get("ROCK_USER_PASSWORD", "password")
+        rock_admin_pw = secrets["ROCK_ADMINISTRATOR_PASSWORD"]
+        rock_manager_pw = secrets["ROCK_MANAGER_PASSWORD"]
+        rock_user_pw = secrets["ROCK_USER_PASSWORD"]
 
         return {
             service_name: {

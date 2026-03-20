@@ -16,9 +16,9 @@ class DatabaseService:
     ) -> dict:
         db = self.db
         container = f"{config.stack_name}-{db.name}"
-        volume = f"{db.name}_data"
+        volume = f"{config.stack_name}-{db.name}-data"
         pw_key = f"{db.name.upper().replace('-', '_')}_PASSWORD"
-        password = secrets.get(pw_key, "changeme")
+        password = secrets[pw_key]
 
         if db.type == DatabaseType.POSTGRES:
             return {
@@ -89,13 +89,13 @@ class DatabaseService:
             }
 
     def compose_volumes(self, config: OpalConfig) -> dict:
-        return {f"{self.db.name}_data": None}
+        return {f"{config.stack_name}-{self.db.name}-data": None}
 
     def opal_env_vars(self, config: OpalConfig, secrets: dict[str, str]) -> dict:
         db = self.db
         prefix = db.name.upper().replace("-", "_")
         pw_key = f"{prefix}_PASSWORD"
-        password = secrets.get(pw_key, "changeme")
+        password = secrets[pw_key]
 
         internal_port = {"postgres": "5432", "mysql": "3306", "mariadb": "3306"}
 
