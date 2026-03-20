@@ -31,6 +31,13 @@ def find_free_port(start: int, reserved: list[int] | None = None) -> int:
     return start
 
 
+def validate_port(port: int) -> str | None:
+    """Returns error message if port is invalid, None if OK."""
+    if not isinstance(port, int) or port < 1 or port > 65535:
+        return f"Port must be between 1 and 65535, got {port}."
+    return None
+
+
 def get_local_ip() -> str:
     """Detect this machine's LAN IP address."""
     try:

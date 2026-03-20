@@ -132,30 +132,46 @@ def validate_name(name: str) -> str | None:
 # ── Lock ─────────────────────────────────────────────────────────────────────
 
 
+LOCK_TIMEOUT_SECONDS = 600  # 10 minutes
+
+
 class InstanceLock:
-    """Simple file-based lock to prevent concurrent operations."""
+    """File-based lock using fcntl for atomic locking on Unix."""
 
     def __init__(self, ctx: InstanceContext):
         self.lock_path = ctx.root / ".lock"
+        self._fd = None
 
     def __enter__(self):
-        if self.lock_path.exists():
-            # Check if the lock is stale (older than 10 minutes)
-            age = datetime.now().timestamp() - self.lock_path.stat().st_mtime
-            if age > 600:
-                self.lock_path.unlink()
-            else:
-                pid = self.lock_path.read_text().strip()
-                raise RuntimeError(
-                    f"Instance is locked by another process (PID {pid}). "
-                    f"If this is stale, delete {self.lock_path}"
-                )
-        self.lock_path.write_text(str(os.getpid()))
+        import fcntl
+
+        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+        self._fd = open(self.lock_path, "w")
+        try:
+            fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            self._fd.close()
+            self._fd = None
+            raise RuntimeError(
+                f"Instance is locked by another process. "
+                f"If this is stale, delete {self.lock_path}"
+            )
+        self._fd.write(str(os.getpid()))
+        self._fd.flush()
         return self
 
     def __exit__(self, *args):
+        if self._fd:
+            import fcntl
+
+            fcntl.flock(self._fd, fcntl.LOCK_UN)
+            self._fd.close()
+            self._fd = None
         if self.lock_path.exists():
-            self.lock_path.unlink()
+            try:
+                self.lock_path.unlink()
+            except OSError:
+                pass
 
 
 # ── CRUD ─────────────────────────────────────────────────────────────────────

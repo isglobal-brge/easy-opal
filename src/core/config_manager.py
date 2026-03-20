@@ -4,7 +4,7 @@ import json
 
 from src.models.config import OpalConfig
 from src.models.instance import InstanceContext
-from src.core.migration import migrate_if_needed
+from src.core.migration import migrate_if_needed, CURRENT_VERSION
 
 
 def config_exists(ctx: InstanceContext) -> bool:
@@ -19,13 +19,12 @@ def load_config(ctx: InstanceContext) -> OpalConfig:
         return cfg
 
     raw = json.loads(ctx.config_path.read_text())
+    old_version = raw.get("schema_version", 0)
     raw = migrate_if_needed(raw)
     cfg = OpalConfig.model_validate(raw)
 
-    # Re-save if migration changed anything
-    if raw.get("schema_version") != json.loads(ctx.config_path.read_text()).get(
-        "schema_version"
-    ):
+    # Re-save if migration changed the schema version
+    if old_version != CURRENT_VERSION:
         save_config(cfg, ctx)
 
     return cfg

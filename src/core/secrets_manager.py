@@ -37,8 +37,9 @@ def save_secrets(secrets: dict[str, str], ctx: InstanceContext) -> None:
     ctx.secrets_path.write_text("\n".join(lines) + "\n")
     try:
         os.chmod(ctx.secrets_path, 0o600)
-    except OSError:
-        pass
+    except OSError as e:
+        from src.utils.console import warning
+        warning(f"Could not set permissions on {ctx.secrets_path}: {e}")
 
 
 def ensure_secrets(ctx: InstanceContext, config: OpalConfig) -> dict[str, str]:

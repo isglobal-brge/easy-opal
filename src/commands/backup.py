@@ -22,9 +22,14 @@ def _backups_dir(ctx: InstanceContext) -> Path:
     return d
 
 
-def _run_in_container(container: str, cmd: list[str], output_path: Path) -> bool:
+def _run_in_container(
+    container: str, cmd: list[str], output_path: Path, env: dict[str, str] | None = None
+) -> bool:
     """Run a command inside a Docker container and capture stdout to a file."""
-    full_cmd = ["docker", "exec", container] + cmd
+    full_cmd = ["docker", "exec"]
+    for k, v in (env or {}).items():
+        full_cmd.extend(["-e", f"{k}={v}"])
+    full_cmd.extend([container] + cmd)
     try:
         with open(output_path, "wb") as f:
             result = subprocess.run(full_cmd, stdout=f, stderr=subprocess.PIPE, check=False)
@@ -140,8 +145,9 @@ def create(ctx, output):
             db_pw = secrets.get(pw_key, "")
             ok = _run_in_container(
                 container,
-                ["mysqldump", "-u", "root", f"--password={db_pw}", db.database],
+                ["mysqldump", "-u", "root", db.database],
                 dump_file,
+                env={"MYSQL_PWD": db_pw},
             )
         else:
             ok = False

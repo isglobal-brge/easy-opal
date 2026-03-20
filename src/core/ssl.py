@@ -25,8 +25,9 @@ def _write_key(path: Path, key: rsa.RSAPrivateKey) -> None:
     )
     try:
         os.chmod(path, 0o600)
-    except OSError:
-        pass
+    except OSError as e:
+        from src.utils.console import warning
+        warning(f"Could not set permissions on {path}: {e}")
 
 
 def _write_cert(path: Path, cert: x509.Certificate) -> None:
@@ -63,7 +64,7 @@ def _generate_ca() -> tuple[rsa.RSAPrivateKey, x509.Certificate]:
     return key, cert
 
 
-def ensure_ca(ctx: InstanceContext) -> tuple[rsa.RSAPrivateKey, x509.Certificate]:
+def ensure_ca(ctx: InstanceContext) -> tuple:
     """Load existing CA, or generate a new one if it doesn't exist."""
     ca_key_path = ctx.certs_dir / "ca.key"
     ca_cert_path = ctx.certs_dir / "ca.crt"
@@ -73,7 +74,7 @@ def ensure_ca(ctx: InstanceContext) -> tuple[rsa.RSAPrivateKey, x509.Certificate
             ca_key_path.read_bytes(), password=None
         )
         ca_cert = x509.load_pem_x509_certificate(ca_cert_path.read_bytes())
-        return ca_key, ca_cert  # type: ignore[return-value]
+        return ca_key, ca_cert
 
     ctx.certs_dir.mkdir(parents=True, exist_ok=True)
     ca_key, ca_cert = _generate_ca()

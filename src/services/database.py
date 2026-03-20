@@ -97,11 +97,15 @@ class DatabaseService:
         pw_key = f"{prefix}_PASSWORD"
         password = secrets[pw_key]
 
-        internal_port = {"postgres": "5432", "mysql": "3306", "mariadb": "3306"}
+        internal_port = {
+            DatabaseType.POSTGRES: "5432",
+            DatabaseType.MYSQL: "3306",
+            DatabaseType.MARIADB: "3306",
+        }
 
         return {
             f"{prefix}_HOST": db.name,
-            f"{prefix}_PORT": internal_port.get(db.type, "5432"),
+            f"{prefix}_PORT": internal_port[db.type],
             f"{prefix}_DATABASE": db.database,
             f"{prefix}_USER": db.user,
             f"{prefix}_PASSWORD": password,

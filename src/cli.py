@@ -7,12 +7,27 @@ import click
 from src.core.instance_manager import resolve_instance, list_instances
 
 
-@click.group()
+class EasyOpalGroup(click.Group):
+    """Custom group that catches unhandled exceptions cleanly."""
+
+    def invoke(self, ctx):
+        try:
+            return super().invoke(ctx)
+        except click.exceptions.Exit:
+            raise
+        except click.exceptions.Abort:
+            raise
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+
+
+@click.group(cls=EasyOpalGroup)
 @click.option("-i", "--instance", "instance_name", envvar="EASY_OPAL_INSTANCE", default=None,
-              help="Target instance name (auto-detected if only one exists).")
+              help="Target instance (auto-detected if only one exists).")
 @click.pass_context
 def main(ctx, instance_name):
-    """easy-opal — deploy and manage OBiBa Opal environments."""
+    """easy-opal -- deploy and manage OBiBa Opal environments."""
     ctx.ensure_object(dict)
 
     # Instance commands don't need a resolved instance

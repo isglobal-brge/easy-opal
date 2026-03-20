@@ -33,10 +33,11 @@ class NginxService:
                 "volumes": volumes,
                 "depends_on": {"opal": {"condition": "service_healthy"}},
                 "healthcheck": {
-                    "test": ["CMD-SHELL", "curl -sf http://localhost:80/ > /dev/null || exit 1"],
-                    "interval": "5s",
+                    "test": ["CMD-SHELL", "service nginx status || exit 1"],
+                    "interval": "10s",
                     "timeout": "3s",
                     "retries": 3,
+                    "start_period": "5s",
                 },
             }
         }

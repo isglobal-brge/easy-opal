@@ -29,13 +29,14 @@ def check_docker() -> bool:
 
 
 def get_compose_cmd() -> list[str] | None:
-    """Returns ['docker', 'compose'] or None."""
+    """Returns ['docker', 'compose'] or None. Requires Compose V2."""
     try:
         subprocess.run(
             ["docker", "compose", "version"], check=True, capture_output=True
         )
         return ["docker", "compose"]
     except (subprocess.CalledProcessError, FileNotFoundError):
+        error("Docker Compose V2 is required. See https://docs.docker.com/compose/install/")
         return None
 
 

@@ -11,7 +11,7 @@ from src.core.ssl import generate_server_cert
 from src.core.nginx import generate_nginx_config
 from src.core.docker import check_docker, compose_up, run_compose
 from src.utils.console import console, display_header, success, error, info, dim
-from src.utils.network import is_port_in_use, find_free_port, get_local_ip
+from src.utils.network import is_port_in_use, find_free_port, get_local_ip, validate_port
 
 
 def _collect_general(config: OpalConfig) -> OpalConfig:
@@ -36,11 +36,21 @@ def _collect_ssl(config: OpalConfig) -> OpalConfig:
     config.ssl = SSLConfig(strategy=SSLStrategy(strategy))
 
     if strategy == "none":
-        port = IntPrompt.ask("HTTP port to expose Opal on", default=config.opal_http_port)
+        while True:
+            port = IntPrompt.ask("HTTP port to expose Opal on", default=config.opal_http_port)
+            if err := validate_port(port):
+                error(err)
+                continue
+            break
         config.opal_http_port = port
         config.hosts = []
     else:
-        port = IntPrompt.ask("External HTTPS port", default=config.opal_external_port)
+        while True:
+            port = IntPrompt.ask("External HTTPS port", default=config.opal_external_port)
+            if err := validate_port(port):
+                error(err)
+                continue
+            break
         config.opal_external_port = port
 
         if strategy == "self-signed":
@@ -86,7 +96,13 @@ def _collect_databases(config: OpalConfig) -> OpalConfig:
             break
 
         name = Prompt.ask("  Instance name", default=db_type)
-        port = IntPrompt.ask("  Port", default=find_free_port(defaults[db_type], used_ports))
+        while True:
+            port = IntPrompt.ask("  Port", default=find_free_port(defaults[db_type], used_ports))
+            port_err = validate_port(port)
+            if port_err:
+                error(f"  {port_err}")
+                continue
+            break
         version = Prompt.ask("  Version", default="latest")
         user = Prompt.ask("  Username", default="opal")
 
