@@ -41,6 +41,8 @@ from src.commands.certs import cert
 from src.commands.profiles import profile
 from src.commands.diagnose import diagnose
 from src.commands.update import update
+from src.commands.backup import backup
+from src.commands.volumes import volumes
 
 main.add_command(instance)
 main.add_command(setup)
@@ -54,3 +56,5 @@ main.add_command(cert)
 main.add_command(profile)
 main.add_command(diagnose)
 main.add_command(update)
+main.add_command(backup)
+main.add_command(volumes)
