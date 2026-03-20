@@ -1538,7 +1538,7 @@ class ContainerDiagnostics:
                 "Regenerate certificates with './easy-opal cert --renew'",
                 "Check certificate files exist in data/nginx/certs/",
                 "For Let's Encrypt: verify domain DNS settings",
-                "For self-signed: check mkcert installation"
+                "For self-signed: regenerate with './easy-opal cert regenerate'"
             ],
             "service-endpoints": [
                 "Wait a few minutes for services to fully start up",

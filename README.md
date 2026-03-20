@@ -8,7 +8,6 @@ Before you begin, ensure you have the following installed on your system:
 - **Python 3.8+**
 - **Docker**: Required to run the Opal and Rock containers.
 - **Git**: Required for the `update` command.
-- **mkcert**: Required for creating locally-trusted SSL certificates for development.
 
 The setup script will automatically install and configure these dependencies across all major platforms.
 
@@ -31,9 +30,8 @@ For the smoothest experience, we recommend:
 ### **Administrative Privileges:**
 
 - **`sudo` access is required** for:
-  - Installing system dependencies (Docker, git, curl, mkcert)
+  - Installing system dependencies (Docker, git, curl)
   - Docker daemon operations (if not in docker group)
-  - SSL certificate installation (mkcert -install)
 
 - **Add your user to the docker group** (recommended):
   ```bash
@@ -86,14 +84,13 @@ The installation process is streamlined using [uv](https://docs.astral.sh/uv/) f
     - ✅ **Python version upgrades** (ensures Python 3.8+ compatibility)
     - ✅ **Docker CE installation** (with Compose V2 support)
     - ✅ **uv installation** with virtual environment setup
-    - ✅ **SSL certificates** via mkcert (skip with `--skip-mkcert`)
+    - ✅ **SSL certificates** generated automatically via Python's `cryptography` library
     - ✅ **Multi-tier fallback system** for maximum compatibility
     
     > 📋 **Setup Options:**
     > - `./setup` - Standard installation
     > - `./setup --upgrade-python` - Install Python 3.8+ if needed
     > - `./setup --upgrade-docker` - Install Docker CE with Compose V2
-    > - `./setup --skip-mkcert` - Skip certificate tools (for 'none' strategy / reverse proxy setups)
     > - `./setup --upgrade-python --upgrade-docker` - Complete system upgrade
 
 ## Usage

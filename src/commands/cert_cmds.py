@@ -4,7 +4,7 @@ from pathlib import Path
 from rich.console import Console
 
 from src.core.config_manager import load_config, save_config, CERTS_DIR
-from src.core.ssl_manager import generate_cert_with_mkcert
+from src.core.ssl_manager import generate_self_signed_cert
 from src.core.docker_manager import run_docker_compose
 
 console = Console()
@@ -29,7 +29,7 @@ def regenerate():
     if strategy == "self-signed":
         cert_path = Path(config["ssl"]["cert_path"])
         key_path = Path(config["ssl"]["key_path"])
-        generate_cert_with_mkcert(cert_path, key_path)
+        generate_self_signed_cert(cert_path, key_path)
         console.print(
             "[green]Certificate regenerated. Restart the stack to apply changes ('easy-opal up').[/green]"
         )

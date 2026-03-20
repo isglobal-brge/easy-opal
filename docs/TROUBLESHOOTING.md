@@ -12,7 +12,7 @@
 > **Quick fixes:**
 > - Python issues: `./setup --upgrade-python`
 > - Docker issues: `./setup --upgrade-docker`
-> - SSL certificate issues: `./setup --skip-mkcert`
+> - SSL certificate issues: `./easy-opal cert regenerate`
 > - **System health check**: `./easy-opal diagnose`
 
 ## Docker Detection Issues

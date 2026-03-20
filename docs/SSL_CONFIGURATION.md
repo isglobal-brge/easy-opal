@@ -6,16 +6,17 @@ This guide provides a detailed explanation of the different SSL strategies avail
 
 ## 1. `self-signed` (Default & Recommended for Development)
 
-This is the simplest method for local development and testing. It uses `mkcert` to generate SSL certificates that are **automatically trusted by your local machine's web browsers**. This means you get the green padlock in your address bar without any manual steps or security warnings.
+This is the simplest method for local development and testing. It uses Python's `cryptography` library to generate a local Certificate Authority (CA) and a server certificate signed by it. No external tools are required.
 
 ### How It Works
 
-1.  **Local Certificate Authority (CA):** The `./setup` script ensures `mkcert` is installed and that its local CA is registered with your system's trust store. This is a one-time operation.
-2.  **Certificate Generation:** When you run `./easy-opal setup` with this strategy, the tool:
+1.  **Local Certificate Authority (CA):** When you run `./easy-opal setup` with this strategy, the tool automatically generates a local CA. The CA certificate is saved at `./data/nginx/certs/ca.crt`.
+2.  **Certificate Generation:** The tool then:
     -   Automatically detects your local hostnames and IP addresses (e.g., `localhost`, `127.0.0.1`, `192.168.1.XX`).
     -   Allows you to add any other hostnames you might use for testing (e.g., `my-local-opal.dev`).
-    -   Uses `mkcert` to generate a `cert.crt` and `key.key` file valid for all those names.
+    -   Generates a server certificate (valid for all those names) signed by the local CA.
     -   Places the generated files in the `./data/nginx/certs/` directory, ready to be used by NGINX.
+3.  **Browser Trust (optional):** To avoid browser security warnings, you can import `./data/nginx/certs/ca.crt` into your browser or system trust store. Otherwise, you can simply accept the warning once.
 
 ### When to Use It
 

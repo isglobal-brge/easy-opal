@@ -202,7 +202,7 @@ Perfect for automated systems and monitoring:
 - **Purpose**: Validates SSL certificates for all configured hosts
 - **Checks**: Certificate existence, expiration dates, basic validation
 - **Certificate Types Supported**:
-  - Self-signed certificates (via mkcert)
+  - Self-signed certificates (via Python cryptography library)
   - Let's Encrypt certificates
   - Manual certificates
 - **Retry Logic**: Automatically waits up to 2 minutes for SSL services to become available if initial tests fail

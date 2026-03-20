@@ -16,7 +16,7 @@ from src.core.config_manager import (
     ENV_FILE,
     create_snapshot,
 )
-from src.core.ssl_manager import generate_cert_with_mkcert, check_mkcert_installed
+from src.core.ssl_manager import generate_self_signed_cert
 from src.core.nginx_manager import generate_nginx_config
 from src.core.docker_manager import generate_compose_file, check_docker_installed, run_docker_compose, docker_reset, docker_down
 from src.commands.lifecycle_cmds import reset as interactive_reset
@@ -392,10 +392,6 @@ def setup(
 
             # --- Collect Host and Cert-specific Info ---
             if strategy == "self-signed":
-                if not check_mkcert_installed():
-                    console.print("[bold red]mkcert is not installed. Please run './setup' to install it.[/bold red]")
-                    return
-
                 hosts_list = ["localhost", "127.0.0.1"]
                 local_ip = get_local_ip()
                 if local_ip not in hosts_list:
@@ -614,7 +610,7 @@ def setup(
     if strategy == "self-signed":
         cert_path = Path(config["ssl"]["cert_path"])
         key_path = Path(config["ssl"]["key_path"])
-        generate_cert_with_mkcert(cert_path, key_path)
+        generate_self_signed_cert(cert_path, key_path)
 
     elif strategy == "manual":
         console.print("[cyan]Copying provided certificates...[/cyan]")
