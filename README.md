@@ -122,7 +122,7 @@ The main command to configure or re-configure a stack. Running it without flags 
 -   `--database TEXT`: Add a database instance. Format: `type:name:port:user:password[:version]` (e.g., `postgres:maindb:5432:opal:pass123` or `postgres:maindb:5432:opal:pass123:16`). Version is optional (defaults to `latest`). Can be used multiple times.
 -   `--watchtower`: Enable Watchtower for automatic container updates.
 -   `--no-watchtower`: Disable Watchtower (default).
--   `--watchtower-interval INTEGER`: Watchtower poll interval in seconds (default: `86400` = 24h).
+-   `--watchtower-interval INTEGER`: Watchtower poll interval in hours (default: `24`).
 -   `--yes`: Bypasses all interactive prompts. Essential for scripting.
 -   `--reset-containers`: Non-interactively stops and removes Docker containers.
 -   `--reset-volumes`: Non-interactively deletes Docker volumes (all application data).
@@ -265,7 +265,7 @@ Manage the stack's configuration, versions, and snapshots.
     -   `--service TEXT`: Target service (e.g., `opal`, `mongo`, `nginx`, or a database instance name). Default: `opal`.
     -   `--pull`: Pull the new Docker image immediately.
 -   `./easy-opal config watchtower [enable|disable|status]`: Manage Watchtower automatic container updates.
-    -   `--interval INTEGER`: Poll interval in seconds (e.g., `3600` for hourly, `86400` for daily).
+    -   `--interval INTEGER`: Poll interval in hours (e.g., `1` for hourly, `24` for daily).
     -   `--cleanup/--no-cleanup`: Remove old images after updates.
 -   `./easy-opal config change-password [PASSWORD]`: Changes the Opal administrator password.
 -   `./easy-opal config change-port [PORT]`: Changes the external port for NGINX.

@@ -288,7 +288,7 @@ def generate_compose_file():
             "volumes": ["/var/run/docker.sock:/var/run/docker.sock"],
             "environment": wt_env,
         }
-        console.print(f"[dim]Watchtower enabled (checking every {poll_interval}s).[/dim]")
+        console.print(f"[dim]Watchtower enabled (checking every {poll_interval // 3600}h).[/dim]")
 
     with open(DOCKER_COMPOSE_PATH, "w") as f:
         yaml.dump(compose_data, f)

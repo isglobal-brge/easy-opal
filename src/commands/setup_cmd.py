@@ -250,7 +250,7 @@ def parse_database_spec(spec: str) -> dict:
 @click.option('--nginx-version', help='NGINX Docker image version/tag (e.g., latest, 1.27). Default: latest.')
 @click.option('--watchtower', 'enable_watchtower', is_flag=True, default=None, help='Enable Watchtower for automatic container updates.')
 @click.option('--no-watchtower', 'enable_watchtower', flag_value=False, help='Disable Watchtower.')
-@click.option('--watchtower-interval', type=int, help='Watchtower poll interval in seconds (default: 86400 = 24h).')
+@click.option('--watchtower-interval', type=int, help='Watchtower poll interval in hours (default: 24).')
 @click.option("--yes", is_flag=True, help="Bypass confirmation prompts for a non-interactive setup.")
 @click.option('--reset-containers', is_flag=True, help='[Non-interactive] Stop and remove Docker containers and networks.')
 @click.option('--reset-volumes', is_flag=True, help='[Non-interactive] Delete Docker volumes (application data).')
@@ -498,9 +498,9 @@ def setup(
             config["watchtower"]["enabled"] = wt_enabled
 
             if wt_enabled:
-                console.print("[dim]Poll interval: how often Watchtower checks for new images (in seconds).[/dim]")
-                wt_interval = IntPrompt.ask("  Poll interval", default=config["watchtower"]["poll_interval"])
-                config["watchtower"]["poll_interval"] = wt_interval
+                default_hours = config["watchtower"]["poll_interval"] // 3600
+                wt_hours = IntPrompt.ask("  Check for updates every (hours)", default=default_hours)
+                config["watchtower"]["poll_interval"] = wt_hours * 3600
 
                 wt_cleanup = Confirm.ask("  Remove old images after updates?", default=True)
                 config["watchtower"]["cleanup"] = wt_cleanup
@@ -517,7 +517,7 @@ def setup(
         if enable_watchtower is not None:
             config["watchtower"]["enabled"] = enable_watchtower
         if watchtower_interval is not None:
-            config["watchtower"]["poll_interval"] = watchtower_interval
+            config["watchtower"]["poll_interval"] = watchtower_interval * 3600
         if password:
             # Save password to .env file for non-interactive setup
             (Path.cwd() / ".env").write_text(f"OPAL_ADMIN_PASSWORD={password}")

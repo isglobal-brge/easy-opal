@@ -213,7 +213,7 @@ def show_version(service):
 
 @config.command(name="watchtower")
 @click.argument("action", type=click.Choice(["enable", "disable", "status"]), required=False)
-@click.option("--interval", type=int, help="Poll interval in seconds (e.g., 86400 for daily, 3600 for hourly).")
+@click.option("--interval", type=int, help="Poll interval in hours (e.g., 24 for daily, 1 for hourly).")
 @click.option("--cleanup/--no-cleanup", default=None, help="Remove old images after updates.")
 def watchtower(action, interval, cleanup):
     """Manage Watchtower automatic container updates."""
@@ -234,7 +234,7 @@ def watchtower(action, interval, cleanup):
         if wt.get("enabled"):
             poll = wt.get("poll_interval", 86400)
             hours = poll / 3600
-            console.print(f"  Poll interval: [bold]{poll}s[/bold] ({hours:.1f}h)")
+            console.print(f"  Poll interval: [bold]{hours:.0f}h[/bold]")
             console.print(f"  Cleanup old images: [bold]{'yes' if wt.get('cleanup', True) else 'no'}[/bold]")
         return
 
@@ -257,9 +257,9 @@ def watchtower(action, interval, cleanup):
             console.print("[yellow]Watchtower is already disabled.[/yellow]")
 
     if interval is not None:
-        wt["poll_interval"] = interval
+        wt["poll_interval"] = interval * 3600
         changed = True
-        console.print(f"[green]Poll interval set to {interval}s ({interval/3600:.1f}h).[/green]")
+        console.print(f"[green]Poll interval set to {interval}h.[/green]")
 
     if cleanup is not None:
         wt["cleanup"] = cleanup
