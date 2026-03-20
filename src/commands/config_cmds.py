@@ -211,6 +211,67 @@ def show_version(service):
 
     console.print(table)
 
+@config.command(name="watchtower")
+@click.argument("action", type=click.Choice(["enable", "disable", "status"]), required=False)
+@click.option("--interval", type=int, help="Poll interval in seconds (e.g., 86400 for daily, 3600 for hourly).")
+@click.option("--cleanup/--no-cleanup", default=None, help="Remove old images after updates.")
+def watchtower(action, interval, cleanup):
+    """Manage Watchtower automatic container updates."""
+    cfg = load_config()
+
+    # Ensure watchtower config exists (backwards compat with old configs)
+    if "watchtower" not in cfg:
+        cfg["watchtower"] = {"enabled": False, "poll_interval": 86400, "cleanup": True}
+
+    wt = cfg["watchtower"]
+
+    if not action and interval is None and cleanup is None:
+        action = "status"
+
+    if action == "status":
+        status = "[bold green]enabled[/bold green]" if wt.get("enabled") else "[bold red]disabled[/bold red]"
+        console.print(f"[cyan]Watchtower:[/cyan] {status}")
+        if wt.get("enabled"):
+            poll = wt.get("poll_interval", 86400)
+            hours = poll / 3600
+            console.print(f"  Poll interval: [bold]{poll}s[/bold] ({hours:.1f}h)")
+            console.print(f"  Cleanup old images: [bold]{'yes' if wt.get('cleanup', True) else 'no'}[/bold]")
+        return
+
+    changed = False
+
+    if action == "enable":
+        if not wt.get("enabled"):
+            wt["enabled"] = True
+            changed = True
+            console.print("[green]Watchtower enabled.[/green]")
+        else:
+            console.print("[yellow]Watchtower is already enabled.[/yellow]")
+
+    elif action == "disable":
+        if wt.get("enabled"):
+            wt["enabled"] = False
+            changed = True
+            console.print("[green]Watchtower disabled.[/green]")
+        else:
+            console.print("[yellow]Watchtower is already disabled.[/yellow]")
+
+    if interval is not None:
+        wt["poll_interval"] = interval
+        changed = True
+        console.print(f"[green]Poll interval set to {interval}s ({interval/3600:.1f}h).[/green]")
+
+    if cleanup is not None:
+        wt["cleanup"] = cleanup
+        changed = True
+        console.print(f"[green]Cleanup {'enabled' if cleanup else 'disabled'}.[/green]")
+
+    if changed:
+        create_snapshot_from_manager("Watchtower configuration change")
+        save_config(cfg)
+        generate_compose_file()
+        console.print("\nRun './easy-opal restart' to apply the changes.")
+
 @config.command(name="show")
 def show_config():
     """Displays the current configuration."""

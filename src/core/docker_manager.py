@@ -269,6 +269,27 @@ def generate_compose_file():
         }
         compose_data["volumes"][volume_name] = None
 
+    # --- Add Watchtower (automatic container updates) ---
+    watchtower_config = config.get("watchtower", {})
+    if watchtower_config.get("enabled", False):
+        poll_interval = watchtower_config.get("poll_interval", 86400)
+        cleanup = watchtower_config.get("cleanup", True)
+
+        wt_env = {
+            "WATCHTOWER_POLL_INTERVAL": str(poll_interval),
+        }
+        if cleanup:
+            wt_env["WATCHTOWER_CLEANUP"] = "true"
+
+        compose_data["services"]["watchtower"] = {
+            "image": "containrrr/watchtower",
+            "container_name": f"{config['stack_name']}-watchtower",
+            "restart": "always",
+            "volumes": ["/var/run/docker.sock:/var/run/docker.sock"],
+            "environment": wt_env,
+        }
+        console.print(f"[dim]Watchtower enabled (checking every {poll_interval}s).[/dim]")
+
     with open(DOCKER_COMPOSE_PATH, "w") as f:
         yaml.dump(compose_data, f)
 

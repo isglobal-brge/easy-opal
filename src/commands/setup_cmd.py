@@ -248,6 +248,9 @@ def parse_database_spec(spec: str) -> dict:
 @click.option('--opal-version', help='Opal Docker image version/tag (e.g., latest, 5.1, 5.0). Default: latest.')
 @click.option('--mongo-version', help='MongoDB Docker image version/tag (e.g., latest, 7.0, 8.0). Default: latest.')
 @click.option('--nginx-version', help='NGINX Docker image version/tag (e.g., latest, 1.27). Default: latest.')
+@click.option('--watchtower', 'enable_watchtower', is_flag=True, default=None, help='Enable Watchtower for automatic container updates.')
+@click.option('--no-watchtower', 'enable_watchtower', flag_value=False, help='Disable Watchtower.')
+@click.option('--watchtower-interval', type=int, help='Watchtower poll interval in seconds (default: 86400 = 24h).')
 @click.option("--yes", is_flag=True, help="Bypass confirmation prompts for a non-interactive setup.")
 @click.option('--reset-containers', is_flag=True, help='[Non-interactive] Stop and remove Docker containers and networks.')
 @click.option('--reset-volumes', is_flag=True, help='[Non-interactive] Delete Docker volumes (application data).')
@@ -257,8 +260,8 @@ def parse_database_spec(spec: str) -> dict:
 def setup(
     stack_name, hosts, port, http_port, password, ssl_strategy, ssl_cert_path,
     ssl_key_path, ssl_email, databases_spec, opal_version, mongo_version,
-    nginx_version, yes, reset_containers, reset_volumes,
-    reset_configs, reset_certs, reset_secrets
+    nginx_version, enable_watchtower, watchtower_interval, yes, reset_containers,
+    reset_volumes, reset_configs, reset_certs, reset_secrets
 ):
     """Guides you through the initial setup or reconfigures the environment."""
     
@@ -487,6 +490,21 @@ def setup(
                             defaults = get_database_defaults(db['type'])
                             console.print(f"  • {defaults['display_name']}: {db['name']} (port {db['port']})")
 
+        # --- Watchtower Configuration ---
+        if is_interactive:
+            console.print("\n[cyan]4. Automatic Updates (Watchtower)[/cyan]")
+            console.print("[dim]Watchtower monitors your containers and automatically updates them when new images are available.[/dim]")
+            wt_enabled = Confirm.ask("Enable Watchtower for automatic container updates?", default=False)
+            config["watchtower"]["enabled"] = wt_enabled
+
+            if wt_enabled:
+                console.print("[dim]Poll interval: how often Watchtower checks for new images (in seconds).[/dim]")
+                wt_interval = IntPrompt.ask("  Poll interval", default=config["watchtower"]["poll_interval"])
+                config["watchtower"]["poll_interval"] = wt_interval
+
+                wt_cleanup = Confirm.ask("  Remove old images after updates?", default=True)
+                config["watchtower"]["cleanup"] = wt_cleanup
+
     else: # Non-interactive mode
         console.print("[cyan]Running non-interactive setup...[/cyan]")
         if stack_name: config["stack_name"] = stack_name
@@ -496,6 +514,10 @@ def setup(
         if opal_version: config["opal_version"] = opal_version
         if mongo_version: config["mongo_version"] = mongo_version
         if nginx_version: config["nginx_version"] = nginx_version
+        if enable_watchtower is not None:
+            config["watchtower"]["enabled"] = enable_watchtower
+        if watchtower_interval is not None:
+            config["watchtower"]["poll_interval"] = watchtower_interval
         if password:
             # Save password to .env file for non-interactive setup
             (Path.cwd() / ".env").write_text(f"OPAL_ADMIN_PASSWORD={password}")

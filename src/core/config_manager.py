@@ -61,6 +61,11 @@ def get_default_config() -> Dict[str, Any]:
                 "tag": "latest"
             }
         ],
+        "watchtower": {
+            "enabled": False,
+            "poll_interval": 86400,
+            "cleanup": True
+        },
         "ssl": {
             "strategy": "self-signed",
             "cert_path": str(CERTS_DIR / "opal.crt"),
