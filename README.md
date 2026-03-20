@@ -1,401 +1,250 @@
 # easy-opal
 
-A command-line tool to easily set up and manage OBiBa Opal environments using Docker and NGINX. This tool provides a simple wizard for initial setup, as well as commands for managing the stack, Rock profiles, and configuration.
+A CLI tool to deploy and manage [OBiBa Opal](https://www.obiba.org/pages/products/opal/) environments with Docker. Setup wizard, multi-instance management, SSL certificates, Rock profiles, database support, backups, and health diagnostics — all from one command.
 
-## Prerequisites
+## Requirements
 
-Before you begin, ensure you have the following installed on your system:
-- **Python 3.8+**
-- **Docker**: Required to run the Opal and Rock containers.
-- **Git**: Required for the `update` command.
+- **Docker** with Compose V2
+- **curl** or **wget** (for first-time setup only)
 
-The setup script will automatically install and configure these dependencies across all major platforms.
+That's it. Python, dependencies, and SSL certificates are handled automatically.
 
-> 📖 **For detailed platform support, troubleshooting, and advanced options, see:** [**Cross-Platform Setup Guide**](./docs/SETUP_CROSS_PLATFORM.md)
-
-## Recommended Setup
-
-For the smoothest experience, we recommend:
-
-### **Operating System:**
-
-**✅ Ubuntu 20.04+ / 22.04+** (Highly Recommended)
-- Ships with Docker Compose V2 by default
-- Excellent Docker integration
-- All dependencies (curl, git, etc.) pre-installed
-- Best networking compatibility
-
-> **Note:** While easy-opal works on other Linux distributions and macOS, Ubuntu provides the most reliable experience with fewer setup issues.
-
-### **Administrative Privileges:**
-
-- **`sudo` access is required** for:
-  - Installing system dependencies (Docker, git, curl)
-  - Docker daemon operations (if not in docker group)
-
-- **Add your user to the docker group** (recommended):
-  ```bash
-  sudo usermod -aG docker $USER
-  # Log out and back in for changes to take effect
-  ```
-
-### **Docker Requirements:**
-- **Docker Engine 17.06+** (20.10+ recommended)
-- **Docker Compose V2** preferred (falls back to V1 automatically)
-- **At least 4GB RAM** available for containers
-- **At least 20GB free disk space** for images, data, and build cache
-
-> **💡 Tip:** If you encounter issues, check our comprehensive [Troubleshooting Guide](./docs/TROUBLESHOOTING.md) for distribution-specific solutions.
-
-## Installation
-
-The installation process is streamlined using [uv](https://docs.astral.sh/uv/) for fast and robust dependency and environment management.
-
-1.  **Clone the repository**:
-    ```bash
-    git clone https://github.com/isglobal-brge/easy-opal.git
-    cd easy-opal
-    ```
-
-2.  **Run the main setup script**:
-    ```bash
-    chmod +x setup
-    ./setup
-    ```
-    
-    **For systems with older Python versions (CentOS/RHEL/AlmaLinux):**
-    ```bash
-    ./setup --upgrade-python
-    ```
-    
-    **For systems without Docker or with older Docker versions:**
-    ```bash
-    ./setup --upgrade-docker
-    ```
-    
-    **For complete system upgrade (recommended for older systems):**
-    ```bash
-    ./setup --upgrade-python --upgrade-docker
-    ```
-    
-    The setup script automatically handles:
-    - ✅ **System dependency detection** (Python 3.8+, Docker CE 17.06+, Git, curl)
-    - ✅ **Cross-platform installation** (Ubuntu, CentOS, Fedora, Arch, Alpine, Gentoo, FreeBSD, macOS, etc.)
-    - ✅ **Python version upgrades** (ensures Python 3.8+ compatibility)
-    - ✅ **Docker CE installation** (with Compose V2 support)
-    - ✅ **uv installation** with virtual environment setup
-    - ✅ **SSL certificates** generated automatically via Python's `cryptography` library
-    - ✅ **Multi-tier fallback system** for maximum compatibility
-    
-    > 📋 **Setup Options:**
-    > - `./setup` - Standard installation
-    > - `./setup --upgrade-python` - Install Python 3.8+ if needed
-    > - `./setup --upgrade-docker` - Install Docker CE with Compose V2
-    > - `./setup --upgrade-python --upgrade-docker` - Complete system upgrade
-
-## Usage
-
-All commands are run from the project root directory using the `./easy-opal` wrapper script.
-
-### `setup`
-
-The main command to configure or re-configure a stack. Running it without flags starts an interactive wizard.
-
--   `./easy-opal setup`
-
-**Flags:**
-
--   `--stack-name TEXT`: The name of the Docker stack (e.g., `my-opal`).
--   `--host TEXT`: A hostname or IP for Opal. Can be used multiple times.
--   `--port INTEGER`: The external HTTPS port for Opal.
--   `--http-port INTEGER`: The local HTTP port for 'none' strategy (no SSL, e.g. behind a reverse proxy).
--   `--password TEXT`: The Opal administrator password.
--   `--ssl-strategy [self-signed|letsencrypt|manual|none]`: The SSL strategy to use. See [SSL Configuration Guide](./docs/SSL_CONFIGURATION.md) for details.
--   `--ssl-cert-path TEXT`: Path to your certificate file (for 'manual' strategy).
--   `--ssl-key-path TEXT`: Path to your private key file (for 'manual' strategy).
--   `--ssl-email TEXT`: Email for Let's Encrypt renewal notices.
--   `--mongo-version TEXT`: MongoDB Docker image version/tag (e.g., `latest`, `7.0`, `8.0`). Default: `latest`.
--   `--nginx-version TEXT`: NGINX Docker image version/tag (e.g., `latest`, `1.27`). Default: `latest`.
--   `--database TEXT`: Add a database instance. Format: `type:name:port:user:password[:version]` (e.g., `postgres:maindb:5432:opal:pass123` or `postgres:maindb:5432:opal:pass123:16`). Version is optional (defaults to `latest`). Can be used multiple times.
--   `--watchtower`: Enable Watchtower for automatic container updates.
--   `--no-watchtower`: Disable Watchtower (default).
--   `--watchtower-interval INTEGER`: Watchtower poll interval in hours (default: `24`).
--   `--yes`: Bypasses all interactive prompts. Essential for scripting.
--   `--reset-containers`: Non-interactively stops and removes Docker containers.
--   `--reset-volumes`: Non-interactively deletes Docker volumes (all application data).
--   `--reset-configs`: Non-interactively deletes configuration files.
--   `--reset-certs`: Non-interactively deletes SSL certificates.
--   `--reset-secrets`: Non-interactively deletes the `.env` file.
-
-**Example (Non-Interactive):**
+## Install
 
 ```bash
-# Basic setup
-./easy-opal setup \
-  --stack-name new-stack \
-  --host localhost \
-  --port 8443 \
-  --password "newpass" \
-  --ssl-strategy "self-signed" \
-  --yes \
-  --reset-containers
+git clone https://github.com/isglobal-brge/easy-opal.git
+cd easy-opal
+./easy-opal --help
+```
 
-# Setup with custom service versions
-./easy-opal setup \
-  --stack-name new-stack \
-  --host localhost \
-  --port 8443 \
-  --password "newpass" \
-  --ssl-strategy "self-signed" \
-  --opal-version "5.1" \
-  --mongo-version "8.0" \
-  --yes
+On first run, `./easy-opal` installs [uv](https://docs.astral.sh/uv/), Python 3.11, and all dependencies automatically. No `./setup` script needed.
 
-# Setup with multiple database instances (with custom versions)
+## Quick Start
+
+```bash
+# Create and configure a new deployment
+./easy-opal setup
+
+# Or non-interactive
 ./easy-opal setup \
-  --stack-name data-stack \
+  --stack-name my-opal \
   --host localhost \
   --port 8443 \
-  --password "mypass" \
-  --ssl-strategy "self-signed" \
-  --database postgres:analytics:5432:opal:pgpass1:16 \
-  --database postgres:warehouse:5433:admin:pgpass2 \
-  --database mysql:app:3306:opal:mysqlpass:9 \
+  --ssl-strategy self-signed \
   --yes
 ```
 
+The wizard walks you through: stack name, service versions, SSL strategy, databases, and Watchtower.
+
 ---
 
-### `reset`
+## Commands
 
-Performs a factory reset of the environment. Running it without flags starts an interactive wizard.
+### Instance Management
 
--   `./easy-opal reset`
+easy-opal supports multiple independent deployments. Each instance has its own config, secrets, data, and Docker stack.
+
+```bash
+easy-opal instance create prod              # Create instance
+easy-opal instance create staging --path /opt/opals  # Custom location
+easy-opal instance list                     # List all instances
+easy-opal instance info prod                # Show instance details
+easy-opal instance remove staging --yes     # Remove instance
+```
+
+When only one instance exists, it's auto-selected. With multiple instances, specify with `-i`:
+
+```bash
+easy-opal -i prod up
+easy-opal -i staging setup
+```
+
+### Setup
+
+```bash
+easy-opal setup                    # Interactive wizard
+easy-opal setup --yes [flags]      # Non-interactive
+```
 
 **Flags:**
 
--   `--containers`: Stop and remove Docker containers and networks.
--   `--volumes`: Delete Docker volumes (highly destructive).
--   `--configs`: Delete configuration files.
--   `--certs`: Delete SSL certificates.
--   `--secrets`: Delete the `.env` file.
--   `--all`: Selects all of the above options.
--   `--yes`: Bypasses the final confirmation prompt.
-
-**Example (Non-Interactive):**
-
-```bash
-# Non-interactively delete everything
-./easy-opal reset --all --yes
-```
-
----
+| Flag | Description |
+|------|-------------|
+| `--stack-name TEXT` | Docker project name |
+| `--host TEXT` | Hostname/IP (repeatable) |
+| `--port INT` | HTTPS port (default: 443) |
+| `--http-port INT` | HTTP port for `none` strategy |
+| `--ssl-strategy` | `self-signed`, `letsencrypt`, `manual`, `none` |
+| `--ssl-email TEXT` | Let's Encrypt email |
+| `--ssl-cert TEXT` | Certificate path (manual strategy) |
+| `--ssl-key TEXT` | Key path (manual strategy) |
+| `--opal-version TEXT` | Opal image tag (default: `latest`) |
+| `--mongo-version TEXT` | MongoDB image tag (default: `latest`) |
+| `--database TEXT` | Add database: `type:name:port:user[:version]` (repeatable) |
+| `--watchtower` | Enable Watchtower auto-updates |
+| `--watchtower-interval INT` | Check interval in hours (default: 24) |
+| `--yes` | Skip all prompts |
 
 ### Stack Lifecycle
 
--   `./easy-opal up`: Ensures the stack is running. If it's already running, it will be stopped and started again to apply any changes.
--   `./easy-opal down`: Stops the stack's containers.
--   `./easy-opal status`: Shows the status of the running containers.
-
----
-
-### `diagnose`
-
-Run comprehensive health diagnostics on your easy-opal installation. This command performs thorough testing of infrastructure, network connectivity, external access, security configurations, and service endpoints.
-
--   `./easy-opal diagnose`: Full diagnostic report with detailed results and troubleshooting guidance.
--   `./easy-opal diagnose --quiet`: Summary-only output, perfect for CI/CD systems and automated monitoring.
--   `./easy-opal diagnose --verbose`: Detailed output with additional debugging information.
--   `./easy-opal diagnose --no-auto-start`: Prevent interactive prompts to start the stack (for automated scenarios).
-
-**What it tests:**
-
--   **🐳 Infrastructure**: Docker Compose configuration and container status
--   **🔗 Network Connectivity**: Inter-container communication (Opal↔MongoDB, Nginx↔Opal, Rock connections) with 2-minute retry logic for startup delays
--   **🌐 External Access**: Port accessibility from host system with 2-minute retry logic for service startup
--   **🔒 Security & Certificates**: SSL certificate validation with 2-minute retry logic for SSL service startup
--   **💾 Service Health**: HTTP/HTTPS endpoint responses with 2-minute retry logic for web service initialization
--   **🛡️ Firewall & Protection**: Firewall rules (UFW, iptables), WAF detection (Cloudflare, AWS, etc.), rate limiting, and Docker network integration
-
-**Output formats:**
-
 ```bash
-# Full diagnostic with troubleshooting guidance
-./easy-opal diagnose
-
-# Quick health check (perfect for monitoring scripts)
-./easy-opal diagnose --quiet
-
-# When everything is healthy:
-🎉 SYSTEM HEALTHY
-   ✅ All 8 tests passed - your easy-opal installation is working perfectly!
-
-# When issues are detected:
-🚨 CRITICAL ISSUES DETECTED
-   ❌ 2 failed, ⚠️ 1 warnings, ✅ 3 passed
-   Run './easy-opal diagnose' for detailed troubleshooting info
+easy-opal up          # Start (convergent — only recreates changed services)
+easy-opal down        # Stop
+easy-opal restart     # Full stop + start cycle
+easy-opal status      # Show container status
+easy-opal reset       # Stop stack
+easy-opal reset --volumes --yes  # Stop and delete all data
 ```
 
-**Smart Stack Detection**: If the stack is not running, the diagnostic tool will:
--   Clearly indicate the stack is down instead of showing misleading test failures
--   Offer to automatically start the stack and then run diagnostics (interactive mode)
--   Provide clear next steps for manual stack startup (quiet/automated modes)
+`up` waits for Docker healthchecks to pass before returning.
 
-**Exit codes**: Returns the number of failed tests (0 = success), making it perfect for automated monitoring and CI/CD pipelines.
+### Configuration
 
-**Use cases:**
--   **Troubleshooting**: Quickly identify connectivity or configuration issues
--   **Health Monitoring**: Regular system health checks in production
--   **Post-Setup Validation**: Verify everything works after initial setup or changes
--   **CI/CD Integration**: Automated testing in deployment pipelines
-
----
-
-### `config`
-
-Manage the stack's configuration, versions, and snapshots.
-
--   `./easy-opal config show`: Displays the current `config.json`.
--   `./easy-opal config show-version`: Shows all configured Docker image versions.
-    -   `--service TEXT`: Show a specific service (e.g., `opal`, `mongo`, `nginx`, or a database instance name).
--   `./easy-opal config change-version [VERSION]`: Changes a Docker image version.
-    -   `--service TEXT`: Target service (e.g., `opal`, `mongo`, `nginx`, or a database instance name). Default: `opal`.
-    -   `--pull`: Pull the new Docker image immediately.
--   `./easy-opal config watchtower [enable|disable|status]`: Manage Watchtower automatic container updates.
-    -   `--interval INTEGER`: Poll interval in hours (e.g., `1` for hourly, `24` for daily).
-    -   `--cleanup/--no-cleanup`: Remove old images after updates.
--   `./easy-opal config change-password [PASSWORD]`: Changes the Opal administrator password.
--   `./easy-opal config change-port [PORT]`: Changes the external port for NGINX.
--   `./easy-opal config restore [SNAPSHOT_ID]`: Restore a configuration from a snapshot.
-    -   `--yes`: Bypasses confirmation prompts.
--   `./easy-opal config export`: Generates a compressed, shareable string of your current configuration.
--   `./easy-opal config import [STRING]`: Imports a configuration from an exported string.
-    -   `--yes`: Bypasses confirmation prompts.
-
----
-
-### `profile`
-
-Manage the Rock server profiles in your stack.
-
--   `./easy-opal profile list`: Lists all configured profiles.
--   `./easy-opal profile add`: Interactively add a new Rock profile.
-    -   `--repository TEXT`: The Docker Hub repository (e.g., `datashield`).
-    -   `--image TEXT`: The image name (e.g., `rock-base`).
-    -   `--tag TEXT`: The image tag (default: `latest`).
-    -   `--name TEXT`: The service name for this profile.
-    -   `--yes`: Bypasses confirmation prompts.
--   `./easy-opal profile remove [NAME]`: Remove a profile by name or interactively.
-    -   `--yes`: Bypasses confirmation prompts.
-
----
-
-### `cert`
-
--   `./easy-opal cert regenerate`: Manually regenerates self-signed certificates.
-
----
-
-### `update`
-
--   `./easy-opal update`: Checks for and pulls the latest version of the tool from Git.
-
----
-
-## Database Configuration
-
-Easy-Opal supports deploying additional database containers alongside the default MongoDB instance, which serves as the primary metadata store for Opal. You can configure multiple database instances of different types (PostgreSQL, MySQL, MariaDB) or even multiple instances of the same type.
-
-### Supported Database Types
-
--   **PostgreSQL** (port 5432 by default)
--   **MySQL** (port 3306 by default)
--   **MariaDB** (port 3307 by default)
--   **MongoDB** (always enabled as the primary metadata database)
-
-### Interactive Configuration
-
-When running `./easy-opal setup` interactively, you'll be prompted to add database instances:
-
-1. Select the database type (postgres, mysql, mariadb)
-2. Provide a unique instance name (e.g., `analytics`, `warehouse-1`)
-3. Configure the port (automatically suggests a free port)
-4. Choose the image version/tag (defaults to `latest`)
-5. Set the username (defaults to `opal`)
-6. Provide a password
-7. Repeat to add more instances or select `done` to continue
-
-### Non-Interactive Configuration
-
-Use the `--database` flag with the format: `type:name:port:user:password[:version]`
-
-The version field is optional. If omitted, `latest` is used for all database types.
-
-**Examples:**
+All changes auto-regenerate the Docker Compose file, NGINX config, and certificates as needed.
 
 ```bash
-# Single PostgreSQL instance (default version)
-./easy-opal setup --database postgres:maindb:5432:opal:mypassword --yes
-
-# Single PostgreSQL instance (specific version)
-./easy-opal setup --database postgres:maindb:5432:opal:mypassword:16 --yes
-
-# Multiple instances of different types with custom versions
-./easy-opal setup \
-  --database postgres:analytics:5432:opal:pass1:16 \
-  --database mysql:app:3306:opal:pass2:9 \
-  --database mariadb:archive:3307:opal:pass3:11 \
-  --yes
-
-# Multiple instances of the same type
-./easy-opal setup \
-  --database postgres:analytics:5432:opal:pass1 \
-  --database postgres:warehouse:5433:admin:pass2 \
-  --database postgres:staging:5434:developer:pass3 \
-  --yes
+easy-opal config show                              # Display config
+easy-opal config show-version                      # Show all service versions
+easy-opal config change-version 7.0 --service mongo  # Change MongoDB version
+easy-opal config change-port 9443                  # Change HTTPS port (updates CSRF)
+easy-opal config change-hosts opal.dev 10.0.0.1    # Change hosts (regenerates certs + CSRF)
+easy-opal config change-ssl self-signed            # Switch SSL strategy
+easy-opal config change-ssl manual --ssl-cert /path/to/cert --ssl-key /path/to/key
+easy-opal config change-password                   # Change admin password
+easy-opal config remove-database analytics --yes   # Remove a database
+easy-opal config watchtower enable --interval 6    # Enable Watchtower (6h checks)
+easy-opal config watchtower disable                # Disable Watchtower
+easy-opal config watchtower status                 # Show Watchtower config
 ```
 
-### Environment Variables
+### SSL Certificates
 
-Each database instance is automatically configured in Opal's environment using uppercase variable names based on the instance name:
+```bash
+easy-opal cert regenerate      # Regenerate server cert (preserves CA)
+easy-opal cert info            # Show certificate details (SANs, expiry)
+easy-opal cert ca-regenerate   # Force regenerate CA (breaks existing trust)
+```
 
-For a database named `analytics`:
--   `ANALYTICS_HOST`: Service hostname
--   `ANALYTICS_PORT`: Internal port
--   `ANALYTICS_DATABASE`: Database name
--   `ANALYTICS_USER`: Username
--   `ANALYTICS_PASSWORD`: Password
+**SSL Strategies:**
 
-For a database named `warehouse-1`:
--   `WAREHOUSE_1_HOST`: Service hostname (hyphens converted to underscores)
--   `WAREHOUSE_1_PORT`: Internal port
--   `WAREHOUSE_1_DATABASE`: Database name
--   `WAREHOUSE_1_USER`: Username
--   `WAREHOUSE_1_PASSWORD`: Password
+| Strategy | NGINX | Certificates | Use case |
+|----------|-------|-------------|----------|
+| `self-signed` | Yes | Auto-generated CA + server cert | Development |
+| `letsencrypt` | Yes | ACME HTTP-01 challenge | Production with public domain |
+| `manual` | Yes | User-provided cert + key | Corporate/custom CA |
+| `none` | No | None — Opal on HTTP directly | Behind reverse proxy |
 
-### Port Selection
+Self-signed certs are generated with Python's `cryptography` library — no external tools needed. The CA is persistent; regenerating certs doesn't invalidate browser trust. Import `data/certs/ca.crt` to avoid browser warnings.
 
--   The wizard automatically detects and suggests free ports
--   Default ports: PostgreSQL (5432), MySQL (3306), MariaDB (3307)
--   For multiple instances of the same type, the wizard will suggest incremental ports (5432, 5433, 5434, etc.)
+### Rock Profiles
 
-### Data Persistence
+```bash
+easy-opal profile list                    # List profiles
+easy-opal profile add --image datashield/rock-omics --tag 2.0 --name rock-omics
+easy-opal profile remove rock-omics --yes
+```
 
-Each database instance gets its own named Docker volume:
--   `{instance-name}_data`: Stores all database data
+### Databases
 
-These volumes persist across container restarts and can be managed with standard Docker volume commands.
+Additional databases (PostgreSQL, MySQL, MariaDB) alongside the default MongoDB:
+
+```bash
+# Interactive (during setup)
+easy-opal setup   # Wizard prompts for databases
+
+# Non-interactive
+easy-opal setup --database postgres:analytics:5432:opal --database mysql:warehouse:3306:opal --yes
+
+# Remove
+easy-opal config remove-database analytics --delete-volume --yes
+```
+
+Format: `type:name:port:user[:version]`. All default to `latest`.
+
+Each database gets its own Docker volume (`{stack}-{name}-data`), healthcheck, and Opal environment variables (`{NAME}_HOST`, `{NAME}_PORT`, `{NAME}_DATABASE`, `{NAME}_USER`, `{NAME}_PASSWORD`).
+
+### Backup & Restore
+
+```bash
+easy-opal backup create                    # Full backup (MongoDB + databases + Opal data)
+easy-opal backup create -o /path/backup.tar.gz  # Custom output path
+easy-opal backup list                      # List backups with size and date
+easy-opal backup restore backup.tar.gz     # Restore from backup
+```
+
+Backups use native dump tools inside containers (mongodump, pg_dump, mysqldump) for consistency. Includes a manifest with metadata.
+
+### Volume Management
+
+```bash
+easy-opal volumes list    # Show Docker volumes for this stack
+easy-opal volumes prune   # Remove unused volumes (stops stack first)
+```
+
+All volumes are prefixed with the stack name to prevent collisions between instances.
+
+### Health Checks
+
+```bash
+easy-opal diagnose           # Stack health: containers, SSL, endpoints
+easy-opal diagnose --quiet   # Summary only
+easy-opal doctor             # easy-opal itself: Docker, config, secrets, permissions
+```
+
+### Self-Update
+
+```bash
+easy-opal update    # Pull latest from git + update dependencies
+```
 
 ---
 
-## Data Persistence: Volumes vs. Local Directories
+## Architecture
 
-This tool uses a hybrid approach for data persistence to balance ease of management and Docker best practices.
+```
+~/.easy-opal/
+  registry.json                  # Tracks all instances
+  instances/
+    prod/
+      config.json                # Pydantic-validated config (source of truth)
+      secrets.env                # Passwords (auto-generated, 0o600 permissions)
+      docker-compose.yml         # Generated from config (never edit manually)
+      data/
+        certs/                   # SSL certificates (CA + server)
+        nginx/                   # NGINX config
+        html/                    # Maintenance page
+        letsencrypt/             # Let's Encrypt data
+      backups/                   # Backup archives
+```
 
--   **Local Directories (`./data`)**:
-    -   **What**: Holds NGINX configuration, SSL certificates, and Let's Encrypt challenge data.
-    -   **Why**: These are critical configuration files that you might need to inspect, modify, back up, or provide yourself (e.g., custom SSL certificates). Storing them in a local directory makes them transparent and easily accessible.
+**Key design decisions:**
+- `config.json` is the single source of truth. `docker-compose.yml` is always regenerated from it.
+- Secrets are never stored in config. They live in `secrets.env` with strict file permissions.
+- Each service (MongoDB, Opal, NGINX, Rock, databases, Watchtower) is a modular plugin in `src/services/`.
+- All passwords are randomly generated with `secrets.token_urlsafe(24)`.
+- CSRF origins are computed from configured hosts + port (not `*`).
+- The CA is persistent — regenerating server certs doesn't break browser trust.
+- Docker healthchecks on all services with proper dependency ordering (`mongo → opal → nginx/rock`).
+- Schema versioning (`schema_version: 2`) with automatic migration from older configs.
+- Instance lock files prevent concurrent operations.
 
--   **Named Docker Volumes**:
-    -   **What**: Used for all application-generated data, including the MongoDB database, Opal server data, and all Rock profile data.
-    -   **Why**: This is the recommended Docker approach for managing the state of stateful applications. Docker manages the lifecycle of this data, which abstracts it from the host machine's filesystem, improves I/O performance, and simplifies data management across different environments.
+## Security
+
+- Admin and Rock passwords: randomly generated, stored in `secrets.env` (0o600)
+- SSL private keys: 0o600 permissions
+- CSRF: computed from configured hosts with port, not wildcard
+- No hardcoded default passwords anywhere
+- Persistent CA for self-signed certs
+- Docker healthchecks prevent premature access
+
+## License
+
+[MIT](LICENSE)
+
+## Authors
+
+- [David Sarrat González](https://davidsarratgonzalez.github.io) — [ISGlobal](https://www.isglobal.org)
+- Xavier Escribà Montagut — ISGlobal
+- Juan R González — ISGlobal
+
+[Bioinformatics Research Group in Epidemiology (BRGE)](https://brge.isglobal.org) — [Barcelona Institute for Global Health (ISGlobal)](https://www.isglobal.org)
