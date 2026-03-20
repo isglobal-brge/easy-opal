@@ -32,27 +32,33 @@ def create(name: str, path: str | None):
 @instance.command(name="list")
 def list_cmd():
     """List all instances."""
-    instances = instance_manager.list_instances()
-    if not instances:
+    registry_info = instance_manager.get_registry_info()
+    if not registry_info:
         console.print("[dim]No instances found. Create one with: easy-opal instance create <name>[/dim]")
         return
 
     table = Table(title="Instances")
     table.add_column("Name", style="cyan")
-    table.add_column("Path", style="dim")
     table.add_column("Stack", style="bold")
+    table.add_column("Created", style="dim")
+    table.add_column("Last used", style="dim")
     table.add_column("Status")
 
-    for name in instances:
-        ctx = instance_manager.get_instance(name)
-        if config_exists(ctx):
-            cfg = load_config(ctx)
-            stack = cfg.stack_name
+    for name, meta in sorted(registry_info.items()):
+        from pathlib import Path
+        path = Path(meta["path"])
+        stack = meta.get("stack_name") or "-"
+        created = (meta.get("created_at") or "?")[:10]
+        accessed = (meta.get("last_accessed") or "?")[:10]
+
+        if not path.exists():
+            status = "[red]missing[/red]"
+        elif config_exists(instance_manager.get_instance(name)):
             status = "[green]configured[/green]"
         else:
-            stack = "-"
             status = "[yellow]not configured[/yellow]"
-        table.add_row(name, str(ctx.root), stack, status)
+
+        table.add_row(name, stack, created, accessed, status)
 
     console.print(table)
 

@@ -187,6 +187,14 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
                 DatabaseConfig(type=DatabaseType(db_type), name=name, port=int(port_str), user=user, version=version)
             )
 
+    # Validate stack name
+    from src.core.instance_manager import validate_name, update_stack_name
+    err = validate_name(config.stack_name)
+    if err:
+        error(f"Invalid stack name: {err}")
+        return
+    update_stack_name(instance.name, config.stack_name)
+
     # Save config and generate secrets
     instance.ensure_dirs()
     save_config(config, instance)
