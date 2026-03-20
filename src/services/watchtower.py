@@ -1,3 +1,4 @@
+"""Watchtower service: automatic Docker image updates."""
 from src.models.config import OpalConfig
 from src.models.instance import InstanceContext
 

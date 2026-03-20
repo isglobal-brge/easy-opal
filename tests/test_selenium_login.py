@@ -14,9 +14,11 @@ import pytest
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
-BASE_URL = "https://localhost:7443"
-ADMIN_USER = "administrator"
-ADMIN_PASS = "SeleniumTest123"
+import os
+
+BASE_URL = os.environ.get("EASY_OPAL_TEST_URL", "https://localhost:7443")
+ADMIN_USER = os.environ.get("EASY_OPAL_TEST_USER", "administrator")
+ADMIN_PASS = os.environ.get("EASY_OPAL_TEST_PASS", "SeleniumTest123")
 
 
 # ── Selenium Fixtures ────────────────────────────────────────────────────────

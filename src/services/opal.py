@@ -1,3 +1,4 @@
+"""Opal application server: aggregates env vars from all services."""
 from src.models.config import OpalConfig
 from src.models.enums import SSLStrategy
 from src.models.instance import InstanceContext

@@ -236,13 +236,26 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
             key_src = click.get_current_context().params.get("ssl_key") or ""
 
         from pathlib import Path
-        if not Path(cert_src).is_file() or not Path(key_src).is_file():
+        cert_file = Path(cert_src)
+        key_file = Path(key_src)
+        if not cert_file.is_file() or not key_file.is_file():
             error("Certificate or key file not found.")
             return
+
+        # Validate PEM format
+        try:
+            from cryptography import x509
+            from cryptography.hazmat.primitives.serialization import load_pem_private_key
+            x509.load_pem_x509_certificate(cert_file.read_bytes())
+            load_pem_private_key(key_file.read_bytes(), password=None)
+        except Exception as e:
+            error(f"Invalid certificate or key: {e}")
+            return
+
         instance.certs_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy(cert_src, instance.certs_dir / "opal.crt")
         shutil.copy(key_src, instance.certs_dir / "opal.key")
-        success("Certificates copied.")
+        success("Certificates validated and copied.")
 
     # Generate NGINX config
     generate_nginx_config(config, instance)
@@ -250,11 +263,15 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
     # Handle Let's Encrypt
     if config.ssl.strategy == SSLStrategy.LETSENCRYPT:
         info("Requesting Let's Encrypt certificate...")
+        info("  Step 1/4: Generating temporary HTTP-only NGINX config...")
         generate_nginx_config(config, instance, acme_only=True)
         from src.core.docker import generate_compose
         generate_compose(config, instance)
+
+        info("  Step 2/4: Starting NGINX for ACME challenge...")
         run_compose(["up", "-d", "nginx"], instance, config.stack_name)
 
+        info("  Step 3/4: Running certbot to obtain certificate...")
         certbot_args = [
             "run", "--rm", "certbot", "certonly", "--webroot",
             "--webroot-path", "/var/www/certbot",
@@ -268,8 +285,15 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
 
         if not cert_ok:
             error("Failed to obtain Let's Encrypt certificate.")
+            error("Reverting SSL strategy to 'self-signed'...")
+            config.ssl = SSLConfig(strategy=SSLStrategy.SELF_SIGNED)
+            save_config(config, instance)
+            generate_server_cert(instance, config)
+            generate_nginx_config(config, instance)
+            info("Reverted to self-signed. Fix DNS/firewall and re-run: easy-opal config change-ssl letsencrypt")
             return
 
+        info("  Step 4/4: Generating full HTTPS NGINX config...")
         generate_nginx_config(config, instance, acme_only=False)
         success("Let's Encrypt certificate obtained.")
 

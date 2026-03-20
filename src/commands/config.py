@@ -102,6 +102,19 @@ def change_version(ctx, version, service, pull):
         success(f"{service} version set to {new}")
 
 
+@config.command(name="show-password")
+@click.pass_context
+def show_password(ctx):
+    """Show the current Opal admin password."""
+    instance: InstanceContext = ctx.obj["instance"]
+    secrets = load_secrets(instance)
+    pw = secrets.get("OPAL_ADMIN_PASSWORD")
+    if pw:
+        console.print(f"[bold]{pw}[/bold]")
+    else:
+        error("No admin password found. Run setup first.")
+
+
 @config.command(name="change-password")
 @click.argument("password", required=False)
 @click.pass_context
@@ -255,13 +268,25 @@ def change_ssl(ctx, strategy, ssl_cert, ssl_key, ssl_email):
         key_path = ssl_key or Prompt.ask("Path to private key file")
 
         from pathlib import Path
-        if not Path(cert_path).is_file() or not Path(key_path).is_file():
+        cert_file = Path(cert_path)
+        key_file = Path(key_path)
+        if not cert_file.is_file() or not key_file.is_file():
             error("Certificate or key file not found.")
             return
+
+        try:
+            from cryptography import x509
+            from cryptography.hazmat.primitives.serialization import load_pem_private_key
+            x509.load_pem_x509_certificate(cert_file.read_bytes())
+            load_pem_private_key(key_file.read_bytes(), password=None)
+        except Exception as e:
+            error(f"Invalid certificate or key: {e}")
+            return
+
         instance.certs_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy(cert_path, instance.certs_dir / "opal.crt")
         shutil.copy(key_path, instance.certs_dir / "opal.key")
-        success("Certificates copied.")
+        success("Certificates validated and copied.")
 
     elif new_strategy == SSLStrategy.LETSENCRYPT:
         cfg.ssl.le_email = ssl_email or Prompt.ask("Let's Encrypt email")

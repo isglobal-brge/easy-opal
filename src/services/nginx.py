@@ -1,3 +1,4 @@
+"""NGINX reverse proxy: SSL termination and request routing."""
 from src.models.config import OpalConfig
 from src.models.enums import SSLStrategy
 from src.models.instance import InstanceContext

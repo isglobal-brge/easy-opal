@@ -1,3 +1,4 @@
+"""MongoDB service: primary metadata database for Opal."""
 from src.models.config import OpalConfig
 from src.models.instance import InstanceContext
 

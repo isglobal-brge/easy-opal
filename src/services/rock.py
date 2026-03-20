@@ -1,3 +1,4 @@
+"""Rock R server profiles: one service instance per configured profile."""
 from src.models.config import OpalConfig, ProfileConfig
 from src.models.instance import InstanceContext
 
