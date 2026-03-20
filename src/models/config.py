@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from src.models.enums import SSLStrategy, DatabaseType
@@ -29,6 +31,19 @@ class WatchtowerConfig(BaseModel):
     cleanup: bool = True
 
 
+class AgateConfig(BaseModel):
+    enabled: bool = False
+    version: str = "latest"
+    mail_mode: Literal["mailpit", "smtp", "none"] = "none"
+    mailpit_port: int = 8025
+
+
+class MicaConfig(BaseModel):
+    enabled: bool = False
+    version: str = "latest"
+    elasticsearch_version: str = "8.16.1"
+
+
 class OpalConfig(BaseModel):
     schema_version: int = 2
     stack_name: str = "easy-opal"
@@ -44,3 +59,5 @@ class OpalConfig(BaseModel):
     )
     databases: list[DatabaseConfig] = Field(default_factory=list)
     watchtower: WatchtowerConfig = Field(default_factory=WatchtowerConfig)
+    agate: AgateConfig = Field(default_factory=AgateConfig)
+    mica: MicaConfig = Field(default_factory=MicaConfig)

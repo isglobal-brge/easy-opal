@@ -45,6 +45,10 @@ class ServiceRegistry:
         from src.services.rock import RockService
         from src.services.database import DatabaseService
         from src.services.watchtower import WatchtowerService
+        from src.services.agate import AgateService
+        from src.services.mailpit import MailpitService
+        from src.services.mica import MicaService
+        from src.services.elasticsearch import ElasticsearchService
 
         candidates: list[ServiceModule] = [
             MongoService(),
@@ -52,6 +56,10 @@ class ServiceRegistry:
             NginxService(),
             CertbotService(),
             WatchtowerService(),
+            AgateService(),
+            MailpitService(),
+            MicaService(),
+            ElasticsearchService(),
         ]
 
         # One RockService per profile

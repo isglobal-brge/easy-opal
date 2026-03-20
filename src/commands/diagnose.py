@@ -90,6 +90,26 @@ def _check_endpoint(config) -> DiagnosticResult:
         return DiagnosticResult("Endpoint", "fail", str(e))
 
 
+def _check_databases(config) -> list[DiagnosticResult]:
+    """Test database connectivity from the Opal container."""
+    results = []
+    for db in config.databases:
+        container = f"{config.stack_name}-opal"
+        port = {"postgres": 5432, "mysql": 3306, "mariadb": 3306}.get(db.type, 5432)
+        try:
+            r = subprocess.run(
+                ["docker", "exec", container, "bash", "-c", f"</dev/tcp/{db.name}/{port}"],
+                capture_output=True, check=False, timeout=10,
+            )
+            if r.returncode == 0:
+                results.append(DiagnosticResult(f"DB {db.name}", "pass", f"Reachable on port {port}"))
+            else:
+                results.append(DiagnosticResult(f"DB {db.name}", "fail", f"Cannot reach {db.name}:{port}"))
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            results.append(DiagnosticResult(f"DB {db.name}", "fail", "Could not test (Docker unavailable)"))
+    return results
+
+
 @click.command()
 @click.option("--quiet", "-q", is_flag=True, help="Summary only.")
 @click.pass_context
@@ -106,6 +126,7 @@ def diagnose(ctx, quiet):
         _check_containers(instance, config),
         _check_ssl(instance, config),
         _check_endpoint(config),
+        *_check_databases(config),
     ]
 
     passed = sum(1 for r in results if r.status == "pass")

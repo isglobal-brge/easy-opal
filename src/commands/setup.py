@@ -130,6 +130,23 @@ def _collect_watchtower(config: OpalConfig) -> OpalConfig:
     return config
 
 
+def _collect_optional_services(config: OpalConfig) -> OpalConfig:
+    """Step 5: Optional services (Agate, Mica)."""
+    info("\n5. Optional Services")
+
+    if Confirm.ask("Enable Agate (authentication server)?", default=False):
+        config.agate.enabled = True
+        config.agate.version = Prompt.ask("  Agate version", default=config.agate.version)
+        mail = Prompt.ask("  Email mode", choices=["mailpit", "smtp", "none"], default="mailpit")
+        config.agate.mail_mode = mail
+
+        if Confirm.ask("  Enable Mica (data portal)? Requires Agate + Elasticsearch", default=False):
+            config.mica.enabled = True
+            config.mica.version = Prompt.ask("  Mica version", default=config.mica.version)
+
+    return config
+
+
 @click.command()
 @click.option("--stack-name", help="Docker stack name.")
 @click.option("--host", "hosts", multiple=True, help="Hostname or IP (repeatable).")
@@ -145,11 +162,13 @@ def _collect_watchtower(config: OpalConfig) -> OpalConfig:
 @click.option("--watchtower", "enable_watchtower", is_flag=True, default=None)
 @click.option("--no-watchtower", "enable_watchtower", flag_value=False)
 @click.option("--watchtower-interval", type=int, help="Watchtower interval in hours.")
+@click.option("--with-agate", is_flag=True, default=False, help="Enable Agate authentication.")
+@click.option("--with-mica", is_flag=True, default=False, help="Enable Mica data portal (implies Agate).")
 @click.option("--yes", is_flag=True, help="Non-interactive mode.")
 @click.pass_context
 def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
           ssl_cert, ssl_key, opal_version, mongo_version, databases,
-          enable_watchtower, watchtower_interval, yes):
+          enable_watchtower, watchtower_interval, with_agate, with_mica, yes):
     """Configure a new easy-opal deployment."""
     instance: InstanceContext = ctx.obj["instance"]
 
@@ -168,6 +187,7 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
         config = _collect_ssl(config)
         config = _collect_databases(config)
         config = _collect_watchtower(config)
+        config = _collect_optional_services(config)
     else:
         # Non-interactive: apply CLI flags
         if stack_name:
@@ -190,6 +210,15 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
             config.watchtower.enabled = enable_watchtower
         if watchtower_interval:
             config.watchtower.poll_interval_hours = watchtower_interval
+
+        # Optional services
+        if with_mica:
+            with_agate = True  # Mica requires Agate
+        if with_agate:
+            config.agate.enabled = True
+            config.agate.mail_mode = "mailpit"
+        if with_mica:
+            config.mica.enabled = True
 
         # Parse database specs
         for spec in databases:

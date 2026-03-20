@@ -1,4 +1,4 @@
-"""Stack lifecycle commands: up, down, restart, status, reset."""
+"""Stack lifecycle commands: up, down, restart, status, reset, plan."""
 
 import click
 from rich.prompt import Confirm
@@ -6,7 +6,7 @@ from rich.prompt import Confirm
 from src.models.instance import InstanceContext
 from src.core.config_manager import load_config, config_exists
 from src.core.docker import compose_up, compose_down, compose_restart, compose_status, compose_reset, check_docker
-from src.utils.console import success, error, info
+from src.utils.console import console, success, error, info
 
 
 @click.command()
@@ -62,6 +62,19 @@ def status(ctx):
         return
     config = load_config(instance)
     compose_status(instance, config)
+
+
+@click.command()
+@click.pass_context
+def plan(ctx):
+    """Show what docker-compose.yml would look like without applying."""
+    instance: InstanceContext = ctx.obj["instance"]
+    if not config_exists(instance):
+        error("No configuration found. Run 'easy-opal setup' first.")
+        return
+    config = load_config(instance)
+    from src.utils.diff import show_compose_preview
+    show_compose_preview(config, instance)
 
 
 @click.command()

@@ -4,6 +4,8 @@ from src.models.config import (
     DatabaseConfig,
     ProfileConfig,
     WatchtowerConfig,
+    AgateConfig,
+    MicaConfig,
 )
 from src.models.instance import InstanceContext
 from src.models.enums import SSLStrategy, DatabaseType
@@ -14,6 +16,8 @@ __all__ = [
     "DatabaseConfig",
     "ProfileConfig",
     "WatchtowerConfig",
+    "AgateConfig",
+    "MicaConfig",
     "InstanceContext",
     "SSLStrategy",
     "DatabaseType",

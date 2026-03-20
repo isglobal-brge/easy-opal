@@ -50,7 +50,7 @@ def main(ctx, instance_name):
 # Register commands
 from src.commands.instances import instance
 from src.commands.setup import setup
-from src.commands.lifecycle import up, down, restart, status, reset
+from src.commands.lifecycle import up, down, restart, status, reset, plan
 from src.commands.config import config
 from src.commands.certs import cert
 from src.commands.profiles import profile
@@ -59,6 +59,7 @@ from src.commands.update import update
 from src.commands.backup import backup
 from src.commands.volumes import volumes
 from src.commands.doctor import doctor
+from src.commands.support import support_bundle
 
 main.add_command(instance)
 main.add_command(setup)
@@ -67,6 +68,7 @@ main.add_command(down)
 main.add_command(restart)
 main.add_command(status)
 main.add_command(reset)
+main.add_command(plan)
 main.add_command(config)
 main.add_command(cert)
 main.add_command(profile)
@@ -75,3 +77,4 @@ main.add_command(update)
 main.add_command(backup)
 main.add_command(volumes)
 main.add_command(doctor)
+main.add_command(support_bundle)

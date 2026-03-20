@@ -16,8 +16,18 @@ from src.core.nginx import generate_nginx_config
 from src.utils.console import console, success, error, info, warning
 
 
-def _apply_config(cfg: OpalConfig, instance: InstanceContext, regen_certs: bool = False) -> None:
-    """Save config and regenerate all derived files (compose, nginx, optionally certs)."""
+def _apply_config(
+    cfg: OpalConfig, instance: InstanceContext, regen_certs: bool = False, dry_run: bool = False
+) -> None:
+    """Save config and regenerate all derived files. In dry_run, show diff only."""
+    if dry_run:
+        old = load_config(instance)
+        from src.utils.diff import show_config_diff
+        console.print("[bold]Changes:[/bold]")
+        show_config_diff(old, cfg)
+        info("Dry run -- no changes applied.")
+        return
+
     save_config(cfg, instance)
 
     if regen_certs and cfg.ssl.strategy == SSLStrategy.SELF_SIGNED:
@@ -137,8 +147,9 @@ def change_password(ctx, password):
 
 @config.command(name="change-port")
 @click.argument("port", type=int, required=False)
+@click.option("--dry-run", is_flag=True, help="Show what would change without applying.")
 @click.pass_context
-def change_port(ctx, port):
+def change_port(ctx, port, dry_run):
     """Change the external port. Updates CSRF automatically."""
     instance: InstanceContext = ctx.obj["instance"]
     cfg = load_config(instance)
@@ -150,8 +161,9 @@ def change_port(ctx, port):
         new_port = port or IntPrompt.ask("New HTTPS port", default=cfg.opal_external_port)
         cfg.opal_external_port = new_port
 
-    _apply_config(cfg, instance)
-    success(f"Port set to {new_port}. CSRF updated.")
+    _apply_config(cfg, instance, dry_run=dry_run)
+    if not dry_run:
+        success(f"Port set to {new_port}. CSRF updated.")
 
 
 @config.command(name="remove-database")
@@ -211,8 +223,9 @@ def remove_database(ctx, name, delete_volume, yes):
 
 @config.command(name="change-hosts")
 @click.argument("hosts", nargs=-1, required=False)
+@click.option("--dry-run", is_flag=True, help="Show what would change without applying.")
 @click.pass_context
-def change_hosts(ctx, hosts):
+def change_hosts(ctx, hosts, dry_run):
     """Change the host list. Regenerates certs and CSRF."""
     instance: InstanceContext = ctx.obj["instance"]
     cfg = load_config(instance)
@@ -229,9 +242,10 @@ def change_hosts(ctx, hosts):
         return
 
     cfg.hosts = new_hosts
-    _apply_config(cfg, instance, regen_certs=True)
-    success(f"Hosts set to: {', '.join(new_hosts)}")
-    info("Certificates and CSRF updated.")
+    _apply_config(cfg, instance, regen_certs=True, dry_run=dry_run)
+    if not dry_run:
+        success(f"Hosts set to: {', '.join(new_hosts)}")
+        info("Certificates and CSRF updated.")
 
 
 @config.command(name="change-ssl")

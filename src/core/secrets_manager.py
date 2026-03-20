@@ -53,6 +53,18 @@ def ensure_secrets(ctx: InstanceContext, config: OpalConfig) -> dict[str, str]:
             secrets[key] = generate_password()
             changed = True
 
+    # Agate secret
+    if hasattr(config, "agate") and config.agate and config.agate.enabled:
+        if "AGATE_ADMIN_PASSWORD" not in secrets:
+            secrets["AGATE_ADMIN_PASSWORD"] = generate_password()
+            changed = True
+
+    # Mica secret
+    if hasattr(config, "mica") and config.mica and config.mica.enabled:
+        if "MICA_ADMIN_PASSWORD" not in secrets:
+            secrets["MICA_ADMIN_PASSWORD"] = generate_password()
+            changed = True
+
     # Per-database secrets
     for db in config.databases:
         key = f"{db.name.upper().replace('-', '_')}_PASSWORD"
