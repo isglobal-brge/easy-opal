@@ -11,20 +11,15 @@ That's it. Python, dependencies, and SSL certificates are handled automatically.
 
 ## Install
 
-**Option A — Global install (recommended):**
+**One-liner:**
 
 ```bash
-# Install uv if you don't have it
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Install easy-opal globally
-uv tool install git+https://github.com/isglobal-brge/easy-opal.git
-
-# Now available everywhere
-easy-opal --help
+curl -sSf https://raw.githubusercontent.com/isglobal-brge/easy-opal/main/install.sh | sh
 ```
 
-**Option B — Clone the repo:**
+This installs [uv](https://docs.astral.sh/uv/) (if needed) and easy-opal globally. Then run `easy-opal setup`.
+
+**Alternative — clone the repo:**
 
 ```bash
 git clone https://github.com/isglobal-brge/easy-opal.git
