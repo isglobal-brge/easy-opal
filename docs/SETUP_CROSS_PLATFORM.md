@@ -12,7 +12,7 @@ The `./setup` script is designed to automatically install and configure all depe
 # Standard installation
 ./setup
 
-# Skip certificate tools (for reverse proxy setups)
+# Skip certificate tools (for 'none' SSL strategy / reverse proxy setups)
 ./setup --skip-mkcert
 
 # Install/upgrade Python 3.8+ if needed
@@ -34,7 +34,7 @@ The `./setup` script is designed to automatically install and configure all depe
 |--------|-------------|----------|
 | `--upgrade-python` | Install/upgrade to Python 3.8+ if needed | Fix compatibility on older systems |
 | `--upgrade-docker` | Install/upgrade Docker CE to latest version | Modern Docker with Compose V2 support |
-| `--skip-mkcert` | Skip mkcert installation | Manual SSL cert management or reverse proxy |
+| `--skip-mkcert` | Skip mkcert installation | Manual SSL cert management or 'none' strategy (reverse proxy) |
 | `--help`, `-h` | Show usage information | Get help and see all options |
 
 ## System Requirements
@@ -631,7 +631,7 @@ Run the script to see detailed debug output:
 
 # Then manually configure:
 # - Provide your own SSL certificates
-# - Use reverse proxy mode
+# - Use 'none' SSL strategy (for reverse proxy setups)
 # - Configure corporate PKI
 ```
 
@@ -641,7 +641,7 @@ Run the script to see detailed debug output:
 # Development (full setup with self-signed certs)
 ./setup
 
-# Production (with reverse proxy)
+# Production (with reverse proxy, use 'none' SSL strategy)
 ./setup --skip-mkcert
 # Then configure nginx/Apache/Cloudflare SSL termination
 ```

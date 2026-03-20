@@ -21,7 +21,7 @@ def generate_nginx_config(acme_only=False):
     strategy = config.get("ssl", {}).get("strategy")
 
     if strategy == "none":
-        console.print("[dim]Skipping NGINX configuration (none/reverse-proxy mode).[/dim]")
+        console.print("[dim]Skipping NGINX configuration (no SSL strategy selected).[/dim]")
         # Clean up any old config file that might be present
         output_path = NGINX_CONF_DIR / "nginx.conf"
         if output_path.exists():

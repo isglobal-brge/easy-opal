@@ -480,10 +480,10 @@ class ContainerDiagnostics:
         ssl_strategy = self.config.get('ssl', {}).get('strategy', 'self-signed')
         
         if ssl_strategy == 'none':
-            # In reverse-proxy mode, Opal is exposed directly on HTTP port
+            # In 'none' mode, Opal is exposed directly on HTTP port
             http_port = self.config.get('opal_http_port', 8080)
             
-            http_test = self._test_port_accessibility('localhost', http_port, f'Opal HTTP (none/reverse-proxy mode, port {http_port})')
+            http_test = self._test_port_accessibility('localhost', http_port, f'Opal HTTP (none mode, port {http_port})')
             port_tests.append(http_test)
         else:
             # In standard mode, test the HTTPS port handled by nginx
@@ -696,7 +696,7 @@ class ContainerDiagnostics:
                 base_url = f"http://{host}:{port}"
                 
                 # Test Opal login page - this confirms the service is working
-                opal_test = self._test_http_endpoint(f"{base_url}/", f"Opal web interface (HTTP, none/reverse-proxy mode)")
+                opal_test = self._test_http_endpoint(f"{base_url}/", f"Opal web interface (HTTP, none mode)")
                 endpoint_tests.append(opal_test)
                 
                 # Test Opal API endpoint - 404 with RESTEASY message indicates Opal is responding correctly
@@ -1444,8 +1444,8 @@ class ContainerDiagnostics:
         if failed_tests:
             self._display_troubleshooting_guide(failed_tests)
         
-        # Display none/reverse-proxy reminder if applicable
-        if self.config and self.config.get('ssl', {}).get('strategy') == 'reverse-proxy':
+        # Display 'none' mode reminder if applicable
+        if self.config and self.config.get('ssl', {}).get('strategy') == 'none':
             console.print("\n" + "="*70)
             console.print("[bold yellow]⚠️  IMPORTANT REMINDER![/bold yellow]")
             console.print("="*70)

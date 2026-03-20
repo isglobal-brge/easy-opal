@@ -66,19 +66,20 @@ This strategy is for advanced users who want to use a certificate from a differe
 
 ---
 
-## 4. `reverse-proxy` (Advanced)
+## 4. `none` (No SSL / Reverse Proxy)
 
-This strategy is for advanced users who are deploying `easy-opal` behind an existing reverse proxy (e.g., another NGINX instance, Traefik, Caddy, or a cloud load balancer like an AWS ALB).
+This strategy disables SSL management within `easy-opal`. It is intended for advanced users who are deploying `easy-opal` behind an existing reverse proxy (e.g., another NGINX instance, Traefik, Caddy, or a cloud load balancer like an AWS ALB), or for local development where HTTPS is not needed.
 
 In this mode, the external proxy is responsible for **SSL termination** (handling all public HTTPS traffic). The `easy-opal` stack communicates with your proxy over plain, unencrypted HTTP.
 
 ### How It Works
 
 1.  **No Internal NGINX:** The `easy-opal` stack does **not** run its own NGINX container in this mode.
-2.  **Direct Port Exposure:** During setup, you specify a local port on the host machine (e.g., `8080`) that will be mapped directly to the Opal service's internal port (`8080`).
+2.  **Direct Port Exposure:** During setup, you specify a local HTTP port on the host machine (e.g., `8080`) that will be mapped directly to the Opal service's internal port (`8080`).
 3.  **External Proxy Configuration:** You must configure your external reverse proxy to forward traffic to the `easy-opal` stack on this exposed HTTP port (e.g., forward `https://my-opal.domain.com` to `http://<easy-opal-host-ip>:8080`).
 
 ### When to Use It
 
 -   When integrating into an existing infrastructure that already has a centralized reverse proxy or load balancer.
--   In corporate environments where SSL is handled at the network edge. 
+-   In corporate environments where SSL is handled at the network edge.
+-   For local development or testing where HTTPS is not required.

@@ -189,7 +189,7 @@ Perfect for automated systems and monitoring:
 
 **External Port Accessibility**
 - **Purpose**: Verifies configured ports are accessible from the host system
-- **Tests**: HTTPS port (default 8443), HTTP port (reverse-proxy mode only)
+- **Tests**: HTTPS port (default 8443), HTTP port ('none' strategy only, e.g. behind a reverse proxy)
 - **Retry Logic**: Automatically waits up to 2 minutes for ports to become accessible if initial tests fail
   - Retries every 10 seconds for failed port tests only
   - Shows progress: "⏳ 1 external port test(s) failed. Waiting 10s for services to fully start... (attempt 1, 120s remaining)"
