@@ -27,3 +27,4 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+# Templates (maintenance.html) are auto-included since they're inside src/
