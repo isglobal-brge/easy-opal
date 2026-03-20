@@ -69,6 +69,8 @@ def create(ctx, output):
         return
 
     cfg = load_config(instance)
+    from src.core.secrets_manager import load_secrets
+    secrets = load_secrets(instance)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_name = f"{cfg.stack_name}-{timestamp}"
     staging_dir = _backups_dir(instance) / backup_name
@@ -100,7 +102,27 @@ def create(ctx, output):
     else:
         warning("  MongoDB dump failed (container might not be running).")
 
-    # 4. Additional database dumps
+    # 4. Opal server data (tar from volume)
+    opal_container = f"{cfg.stack_name}-opal"
+    opal_dump = staging_dir / "opal-srv.tar"
+    info("  Backing up Opal server data...")
+    opal_ok = subprocess.run(
+        ["docker", "cp", f"{opal_container}:/srv", str(staging_dir / "opal-srv")],
+        capture_output=True, check=False,
+    ).returncode == 0
+    if opal_ok:
+        import tarfile as _tf
+        with _tf.open(opal_dump, "w") as t:
+            t.add(staging_dir / "opal-srv", arcname="opal-srv")
+        import shutil as _sh
+        _sh.rmtree(staging_dir / "opal-srv")
+        manifest["services"].append({"type": "opal", "file": "opal-srv.tar"})
+        size_mb = opal_dump.stat().st_size / (1024 * 1024)
+        dim(f"  Opal data: {size_mb:.1f} MB")
+    else:
+        warning("  Opal data backup failed (container might not be running).")
+
+    # 5. Additional database dumps
     for db in cfg.databases:
         container = f"{cfg.stack_name}-{db.name}"
         dump_file = staging_dir / f"{db.name}.sql"
@@ -114,19 +136,13 @@ def create(ctx, output):
                 dump_file,
             )
         elif db.type in (DatabaseType.MYSQL, DatabaseType.MARIADB):
+            pw_key = f"{db.name.upper().replace('-', '_')}_PASSWORD"
+            db_pw = secrets.get(pw_key, "")
             ok = _run_in_container(
                 container,
-                ["mysqldump", "-u", db.user, f"--password=__PLACEHOLDER__", db.database],
+                ["mysqldump", "-u", "root", f"--password={db_pw}", db.database],
                 dump_file,
             )
-            # For mysql/mariadb we need the password from secrets
-            if not ok:
-                # Try without password (root might work)
-                ok = _run_in_container(
-                    container,
-                    ["mysqldump", "-u", "root", db.database],
-                    dump_file,
-                )
         else:
             ok = False
 
@@ -192,9 +208,31 @@ def restore(ctx, backup_file, yes):
             if not click.confirm("Restore this backup? This will overwrite current data."):
                 return
 
-        # Restore MongoDB
+        # Restore each service
         for svc in manifest["services"]:
-            if svc["type"] == "mongo":
+            if svc["type"] == "opal":
+                opal_container = f"{cfg.stack_name}-opal"
+                opal_tar = backup_dir / svc["file"]
+                info("  Restoring Opal server data...")
+                # Extract tar to temp, then docker cp back
+                import tempfile as _tf2
+                with _tf2.TemporaryDirectory() as opal_tmp:
+                    with tarfile.open(opal_tar, "r") as t:
+                        t.extractall(opal_tmp)
+                    srv_dir = Path(opal_tmp) / "opal-srv"
+                    if srv_dir.exists():
+                        result = subprocess.run(
+                            ["docker", "cp", f"{srv_dir}/.", f"{opal_container}:/srv"],
+                            capture_output=True, check=False,
+                        )
+                        if result.returncode == 0:
+                            success("  Opal data restored.")
+                        else:
+                            error("  Opal data restore failed.")
+                    else:
+                        error("  Opal backup data not found in archive.")
+
+            elif svc["type"] == "mongo":
                 mongo_container = f"{cfg.stack_name}-mongo"
                 archive = backup_dir / svc["file"]
                 info("  Restoring MongoDB...")

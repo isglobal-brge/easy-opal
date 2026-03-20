@@ -17,7 +17,7 @@ class OpalService:
             "container_name": f"{config.stack_name}-opal",
             "restart": "always",
             "depends_on": {"mongo": {"condition": "service_healthy"}},
-            "volumes": ["opal_srv_data:/srv"],
+            "volumes": [f"{config.stack_name}-opal-data:/srv"],
             "env_file": [str(ctx.secrets_path)],
             "healthcheck": {
                 "test": ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080' || exit 1"],
@@ -36,7 +36,7 @@ class OpalService:
         return {"opal": svc}
 
     def compose_volumes(self, config: OpalConfig) -> dict:
-        return {"opal_srv_data": None}
+        return {f"{config.stack_name}-opal-data": None}
 
     def opal_env_vars(self, config: OpalConfig, secrets: dict[str, str]) -> dict:
         env = {

@@ -16,7 +16,7 @@ class MongoService:
                 "image": f"mongo:{config.mongo_version}",
                 "container_name": f"{config.stack_name}-mongo",
                 "restart": "always",
-                "volumes": ["opal_mongo_data:/data/db"],
+                "volumes": [f"{config.stack_name}-mongo-data:/data/db"],
                 "healthcheck": {
                     "test": ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"],
                     "interval": "10s",
@@ -27,7 +27,7 @@ class MongoService:
         }
 
     def compose_volumes(self, config: OpalConfig) -> dict:
-        return {"opal_mongo_data": None}
+        return {f"{config.stack_name}-mongo-data": None}
 
     def opal_env_vars(self, config: OpalConfig, secrets: dict[str, str]) -> dict:
         return {"MONGO_HOST": "mongo", "MONGO_PORT": "27017"}

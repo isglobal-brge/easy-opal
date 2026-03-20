@@ -141,6 +141,61 @@ def change_port(ctx, port):
     success(f"Port set to {new_port}. CSRF updated.")
 
 
+@config.command(name="remove-database")
+@click.argument("name", required=False)
+@click.option("--delete-volume", is_flag=True, help="Also delete the Docker volume (data loss).")
+@click.option("--yes", is_flag=True, help="Skip confirmation.")
+@click.pass_context
+def remove_database(ctx, name, delete_volume, yes):
+    """Remove a database instance from the stack."""
+    instance: InstanceContext = ctx.obj["instance"]
+    cfg = load_config(instance)
+
+    if not cfg.databases:
+        error("No databases configured.")
+        return
+
+    if not name:
+        for i, db in enumerate(cfg.databases):
+            console.print(f"  {i}. {db.name} ({db.type}, port {db.port})")
+        idx = click.prompt("Database index to remove", type=int)
+        if 0 <= idx < len(cfg.databases):
+            name = cfg.databases[idx].name
+        else:
+            error("Invalid index.")
+            return
+
+    db = next((d for d in cfg.databases if d.name == name), None)
+    if not db:
+        error(f"Database '{name}' not found.")
+        return
+
+    if not yes:
+        msg = f"Remove database '{name}'"
+        if delete_volume:
+            msg += " AND delete its data volume"
+        if not Confirm.ask(f"{msg}?", default=False):
+            return
+
+    cfg.databases = [d for d in cfg.databases if d.name != name]
+    _apply_config(cfg, instance)
+    success(f"Database '{name}' removed from config.")
+
+    if delete_volume:
+        import subprocess
+        vol_name = f"{cfg.stack_name}-{name}-data"
+        result = subprocess.run(
+            ["docker", "volume", "rm", vol_name],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode == 0:
+            success(f"Volume '{vol_name}' deleted.")
+        else:
+            warning(f"Could not delete volume '{vol_name}' (may be in use). Stop the stack first.")
+
+    info("Run 'easy-opal restart' to apply.")
+
+
 @config.command(name="change-hosts")
 @click.argument("hosts", nargs=-1, required=False)
 @click.pass_context
