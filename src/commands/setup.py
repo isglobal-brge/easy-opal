@@ -289,6 +289,12 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
     # Generate NGINX config
     generate_nginx_config(config, instance)
 
+    # Generate Agate config if enabled
+    if config.agate.enabled:
+        from src.core.agate_config import generate_agate_config
+        generate_agate_config(config, instance, secrets)
+        info("Agate email configuration generated.")
+
     # Handle Let's Encrypt
     if config.ssl.strategy == SSLStrategy.LETSENCRYPT:
         info("Requesting Let's Encrypt certificate...")

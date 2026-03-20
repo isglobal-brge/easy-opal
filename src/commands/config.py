@@ -37,6 +37,12 @@ def _apply_config(
     if cfg.ssl.strategy != SSLStrategy.NONE:
         generate_nginx_config(cfg, instance)
 
+    # Regenerate Agate config if enabled
+    if cfg.agate.enabled:
+        from src.core.agate_config import generate_agate_config
+        secrets = load_secrets(instance)
+        generate_agate_config(cfg, instance, secrets)
+
     generate_compose(cfg, instance)
     info("Run 'easy-opal restart' to apply.")
 
@@ -360,3 +366,117 @@ def watchtower(ctx, action, interval, cleanup):
 
     if changed:
         _apply_config(cfg, instance)
+
+
+@config.command()
+@click.argument("action", type=click.Choice(["enable", "disable", "status"]), required=False)
+@click.option("--mail-mode", type=click.Choice(["mailpit", "smtp", "none"]), help="Email mode.")
+@click.option("--smtp-host", help="SMTP server hostname.")
+@click.option("--smtp-port", type=int, help="SMTP port.")
+@click.option("--smtp-user", help="SMTP username.")
+@click.option("--smtp-password", help="SMTP password.")
+@click.option("--smtp-from", help="From email address.")
+@click.option("--smtp-tls/--no-smtp-tls", default=None, help="Enable TLS.")
+@click.pass_context
+def agate(ctx, action, mail_mode, smtp_host, smtp_port, smtp_user, smtp_password, smtp_from, smtp_tls):
+    """Manage Agate authentication server."""
+    instance: InstanceContext = ctx.obj["instance"]
+    cfg = load_config(instance)
+
+    if not action and mail_mode is None and smtp_host is None:
+        action = "status"
+
+    if action == "status":
+        status_str = "[green]enabled[/green]" if cfg.agate.enabled else "[red]disabled[/red]"
+        console.print(f"Agate: {status_str}")
+        if cfg.agate.enabled:
+            console.print(f"  Version:   {cfg.agate.version}")
+            console.print(f"  Mail mode: {cfg.agate.mail_mode}")
+            if cfg.agate.mail_mode == "smtp":
+                s = cfg.agate.smtp
+                console.print(f"  SMTP host: {s.host}:{s.port}")
+                console.print(f"  SMTP user: {s.user or '(none)'}")
+                console.print(f"  SMTP from: {s.from_address}")
+                console.print(f"  SMTP TLS:  {s.tls}")
+            elif cfg.agate.mail_mode == "mailpit":
+                console.print(f"  Mailpit:   http://localhost:{cfg.agate.mailpit_port}")
+        return
+
+    changed = False
+
+    if action == "enable" and not cfg.agate.enabled:
+        cfg.agate.enabled = True
+        if cfg.agate.mail_mode == "none":
+            cfg.agate.mail_mode = "mailpit"
+        changed = True
+        success("Agate enabled.")
+    elif action == "disable" and cfg.agate.enabled:
+        cfg.agate.enabled = False
+        changed = True
+        success("Agate disabled.")
+
+    if mail_mode is not None:
+        cfg.agate.mail_mode = mail_mode
+        changed = True
+        success(f"Mail mode set to: {mail_mode}")
+
+    if smtp_host is not None:
+        cfg.agate.smtp.host = smtp_host
+        changed = True
+    if smtp_port is not None:
+        cfg.agate.smtp.port = smtp_port
+        changed = True
+    if smtp_user is not None:
+        cfg.agate.smtp.user = smtp_user
+        changed = True
+    if smtp_from is not None:
+        cfg.agate.smtp.from_address = smtp_from
+        changed = True
+    if smtp_tls is not None:
+        cfg.agate.smtp.tls = smtp_tls
+        cfg.agate.smtp.auth = smtp_tls  # TLS usually implies auth
+        changed = True
+
+    if smtp_password is not None:
+        secrets = load_secrets(instance)
+        secrets["SMTP_PASSWORD"] = smtp_password
+        save_secrets(secrets, instance)
+        success("SMTP password saved.")
+
+    if changed:
+        _apply_config(cfg, instance)
+
+
+@config.command()
+@click.argument("action", type=click.Choice(["enable", "disable", "status"]), required=False)
+@click.pass_context
+def mica(ctx, action):
+    """Manage Mica data portal (requires Agate)."""
+    instance: InstanceContext = ctx.obj["instance"]
+    cfg = load_config(instance)
+
+    if not action:
+        action = "status"
+
+    if action == "status":
+        status_str = "[green]enabled[/green]" if cfg.mica.enabled else "[red]disabled[/red]"
+        console.print(f"Mica: {status_str}")
+        if cfg.mica.enabled:
+            console.print(f"  Version:         {cfg.mica.version}")
+            console.print(f"  Elasticsearch:   {cfg.mica.elasticsearch_version}")
+        return
+
+    if action == "enable":
+        if not cfg.agate.enabled:
+            cfg.agate.enabled = True
+            if cfg.agate.mail_mode == "none":
+                cfg.agate.mail_mode = "mailpit"
+            info("Agate auto-enabled (required by Mica).")
+        cfg.mica.enabled = True
+        _apply_config(cfg, instance)
+        success("Mica enabled.")
+
+    elif action == "disable":
+        cfg.mica.enabled = False
+        _apply_config(cfg, instance)
+        success("Mica disabled.")

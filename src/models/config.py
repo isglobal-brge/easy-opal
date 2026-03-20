@@ -31,11 +31,21 @@ class WatchtowerConfig(BaseModel):
     cleanup: bool = True
 
 
+class SmtpConfig(BaseModel):
+    host: str = ""
+    port: int = 587
+    user: str = ""
+    tls: bool = True
+    auth: bool = True
+    from_address: str = "opal@example.org"
+
+
 class AgateConfig(BaseModel):
     enabled: bool = False
     version: str = "latest"
     mail_mode: Literal["mailpit", "smtp", "none"] = "none"
     mailpit_port: int = 8025
+    smtp: SmtpConfig = Field(default_factory=SmtpConfig)
 
 
 class MicaConfig(BaseModel):

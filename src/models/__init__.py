@@ -5,6 +5,7 @@ from src.models.config import (
     ProfileConfig,
     WatchtowerConfig,
     AgateConfig,
+    SmtpConfig,
     MicaConfig,
 )
 from src.models.instance import InstanceContext

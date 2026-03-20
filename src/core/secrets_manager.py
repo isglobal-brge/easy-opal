@@ -53,10 +53,14 @@ def ensure_secrets(ctx: InstanceContext, config: OpalConfig) -> dict[str, str]:
             secrets[key] = generate_password()
             changed = True
 
-    # Agate secret
+    # Agate secrets
     if hasattr(config, "agate") and config.agate and config.agate.enabled:
         if "AGATE_ADMIN_PASSWORD" not in secrets:
             secrets["AGATE_ADMIN_PASSWORD"] = generate_password()
+            changed = True
+        # SMTP password placeholder (user must set it for real SMTP)
+        if config.agate.mail_mode == "smtp" and "SMTP_PASSWORD" not in secrets:
+            secrets["SMTP_PASSWORD"] = ""
             changed = True
 
     # Mica secret
