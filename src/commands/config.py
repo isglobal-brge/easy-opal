@@ -500,7 +500,8 @@ def backup_config(ctx, action, every, keep):
         console.print(f"Automated backup: {status_str}")
         if cfg.backup.enabled:
             console.print(f"  Interval: every {cfg.backup.interval_hours}h")
-            console.print(f"  Retain:   {cfg.backup.keep} backups")
+            retain = f"{cfg.backup.keep} backups" if cfg.backup.keep > 0 else "[yellow]no limit[/yellow]"
+            console.print(f"  Retain:   {retain}")
 
         # Show existing backups
         backups = sorted(instance.root.glob("backups/*.tar.gz"), reverse=True)
@@ -528,7 +529,10 @@ def backup_config(ctx, action, every, keep):
     if keep is not None:
         cfg.backup.keep = keep
         changed = True
-        success(f"Retaining {keep} backups.")
+        if keep == 0:
+            warning("No limit set. Backups will accumulate and may fill up disk space.")
+        else:
+            success(f"Retaining {keep} backups.")
 
     if changed:
         _apply_config(cfg, instance)

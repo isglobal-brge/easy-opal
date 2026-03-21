@@ -96,12 +96,14 @@ MANIFEST
 
     echo "[$(date)] Backup complete: ${{NAME}}.tar.gz"
 
-    # Cleanup old backups
-    TOTAL=$(ls -1 "$BACKUP_DIR"/*.tar.gz 2>/dev/null | wc -l)
-    if [ "$TOTAL" -gt "$KEEP" ]; then
-        REMOVE=$((TOTAL - KEEP))
-        ls -1t "$BACKUP_DIR"/*.tar.gz | tail -n "$REMOVE" | xargs rm -f
-        echo "[$(date)] Cleaned $REMOVE old backup(s), keeping $KEEP"
+    # Cleanup old backups (skip if KEEP=0, meaning no limit)
+    if [ "$KEEP" -gt 0 ]; then
+        TOTAL=$(ls -1 "$BACKUP_DIR"/*.tar.gz 2>/dev/null | wc -l)
+        if [ "$TOTAL" -gt "$KEEP" ]; then
+            REMOVE=$((TOTAL - KEEP))
+            ls -1t "$BACKUP_DIR"/*.tar.gz | tail -n "$REMOVE" | xargs rm -f
+            echo "[$(date)] Cleaned $REMOVE old backup(s), keeping $KEEP"
+        fi
     fi
 }}
 

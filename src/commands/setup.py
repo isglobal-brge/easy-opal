@@ -144,9 +144,13 @@ def _collect_backup(config: OpalConfig) -> OpalConfig:
         config.backup.interval_hours = IntPrompt.ask(
             "  Backup every (hours)", default=config.backup.interval_hours
         )
-        config.backup.keep = IntPrompt.ask(
-            "  Keep how many backups?", default=config.backup.keep
-        )
+        if Confirm.ask("  Limit number of backups? (recommended)", default=True):
+            config.backup.keep = IntPrompt.ask(
+                "  Keep how many?", default=config.backup.keep
+            )
+        else:
+            config.backup.keep = 0
+            warning("  No limit set. Backups will accumulate and may fill up disk space.")
 
     return config
 
