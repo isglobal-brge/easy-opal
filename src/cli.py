@@ -6,9 +6,24 @@ import click
 
 from src.core.instance_manager import resolve_instance, list_instances
 
+HEADER = r"""
+=========================================================
+                                                       _
+                                                      | |
+  ___   __ _  ___  _   _           ___   _ __    __ _ | |
+ / _ \ / _` |/ __|| | | | ______  / _ \ | '_ \  / _` || |
+|  __/| (_| |\__ \| |_| ||______|| (_) || |_) || (_| || |
+ \___| \__,_||___/ \__, |         \___/ | .__/  \__,_||_|
+                    __/ |               | |
+                   |___/                |_|
+=========================================================
+"""
+
 
 class EasyOpalGroup(click.Group):
-    """Custom group that catches unhandled exceptions cleanly."""
+    """Custom group with ASCII header and clean exception handling."""
+
+    pass
 
     def invoke(self, ctx):
         try:
@@ -27,7 +42,7 @@ class EasyOpalGroup(click.Group):
               help="Target instance (auto-detected if only one exists).")
 @click.pass_context
 def main(ctx, instance_name):
-    """easy-opal -- deploy and manage OBiBa Opal environments."""
+    """Deploy and manage OBiBa Opal environments."""
     ctx.ensure_object(dict)
 
     # Instance commands don't need a resolved instance
