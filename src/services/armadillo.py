@@ -18,6 +18,8 @@ class ArmadilloService:
         env = {
             "SPRING_SECURITY_USER_NAME": "admin",
             "SPRING_SECURITY_USER_PASSWORD": admin_pw,
+            "SPRING_SECURITY_USER_ROLES": "SU",
+            "SERVER_FORWARD_HEADERS_STRATEGY": "NATIVE",
             "ARMADILLO_DOCKER_MANAGEMENT_ENABLED": "false",
             "ARMADILLO_DOCKER_RUN_IN_CONTAINER": "true",
             "ARMADILLO_CONTAINER_PREFIX": config.stack_name,
