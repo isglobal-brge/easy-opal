@@ -165,11 +165,13 @@ def _collect_optional_services(config: OpalConfig) -> OpalConfig:
 @click.option("--with-agate", is_flag=True, default=False, help="Enable Agate authentication.")
 @click.option("--with-mica", is_flag=True, default=False, help="Enable Mica data portal (implies Agate).")
 @click.option("--preset", help="Apply a preset (opal-dev, opal-prod, opal-proxy, opal-agate, obiba-full).")
+@click.option("--password", help="Opal admin password (generated if not set).")
 @click.option("--yes", is_flag=True, help="Non-interactive mode.")
 @click.pass_context
 def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
           ssl_cert, ssl_key, opal_version, mongo_version, databases,
-          enable_watchtower, watchtower_interval, with_agate, with_mica, preset, yes):
+          enable_watchtower, watchtower_interval, with_agate, with_mica, preset,
+          password, yes):
     """Configure a new easy-opal deployment."""
     instance: InstanceContext = ctx.obj["instance"]
 
@@ -252,12 +254,29 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
     instance.ensure_dirs()
     save_config(config, instance)
     secrets = ensure_secrets(instance, config)
-    success(f"Configuration saved to {instance.config_path}")
 
-    # Show generated admin password
-    admin_pw = secrets.get("OPAL_ADMIN_PASSWORD", "")
+    # Admin password: user-provided or auto-generated
+    if password:
+        secrets["OPAL_ADMIN_PASSWORD"] = password
+        from src.core.secrets_manager import save_secrets
+        save_secrets(secrets, instance)
+    elif is_interactive:
+        from rich.prompt import Prompt as P
+        choice = Confirm.ask("Set your own admin password?", default=False)
+        if choice:
+            while True:
+                custom_pw = P.ask("  Admin password", password=True)
+                if custom_pw and custom_pw.strip():
+                    secrets["OPAL_ADMIN_PASSWORD"] = custom_pw
+                    from src.core.secrets_manager import save_secrets
+                    save_secrets(secrets, instance)
+                    break
+                error("  Password cannot be empty.")
+
+    admin_pw = secrets["OPAL_ADMIN_PASSWORD"]
+    success(f"Configuration saved to {instance.config_path}")
     console.print(f"\n[bold]Admin password:[/bold] {admin_pw}")
-    dim("Save this password — it won't be shown again.")
+    dim("Run 'easy-opal config show-password' to retrieve it later.")
 
     # Generate SSL certs
     if config.ssl.strategy == SSLStrategy.SELF_SIGNED:
