@@ -6,16 +6,7 @@ from rich.prompt import Confirm
 from src.models.instance import InstanceContext
 from src.core.config_manager import load_config, config_exists
 from src.core.docker import compose_up, compose_down, compose_restart, compose_status, compose_reset, check_docker
-from src.utils.console import console, success, error, info
-
-
-def _for_each_instance(ctx, fn):
-    """Run fn(instance) for each instance when --all is used, or just the selected one."""
-    instances = ctx.obj.get("instances", [ctx.obj["instance"]])
-    for inst in instances:
-        if len(instances) > 1:
-            console.print(f"\n[bold cyan]--- {inst.name} ---[/bold cyan]")
-        fn(inst)
+from src.utils.console import console, success, error, info, for_each_instance
 
 
 @click.command()
@@ -32,7 +23,7 @@ def up(ctx):
             success(f"{instance.name} is running.")
     if not check_docker():
         return
-    _for_each_instance(ctx, _up)
+    for_each_instance(ctx, _up)
 
 
 @click.command()
@@ -45,7 +36,7 @@ def down(ctx):
         config = load_config(instance)
         compose_down(instance, config)
         success(f"{instance.name} stopped.")
-    _for_each_instance(ctx, _down)
+    for_each_instance(ctx, _down)
 
 
 @click.command()
@@ -59,7 +50,7 @@ def restart(ctx):
         info(f"Restarting {instance.name}...")
         if compose_restart(instance, config):
             success(f"{instance.name} restarted.")
-    _for_each_instance(ctx, _restart)
+    for_each_instance(ctx, _restart)
 
 
 @click.command()
@@ -71,7 +62,7 @@ def status(ctx):
             return
         config = load_config(instance)
         compose_status(instance, config)
-    _for_each_instance(ctx, _status)
+    for_each_instance(ctx, _status)
 
 
 @click.command()

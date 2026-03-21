@@ -4,9 +4,8 @@ import subprocess
 
 import click
 
-from src.models.instance import InstanceContext
 from src.core.config_manager import load_config, config_exists
-from src.utils.console import error
+from src.utils.console import error, for_each_instance
 
 
 @click.command()
@@ -16,21 +15,19 @@ from src.utils.console import error
 @click.pass_context
 def logs(ctx, service, follow, lines):
     """View logs for a service (opal, mongo, nginx, rock, etc.)."""
-    instance: InstanceContext = ctx.obj["instance"]
-    if not config_exists(instance):
-        error("No configuration found.")
-        return
+    def _logs(instance):
+        if not config_exists(instance):
+            return
+        config = load_config(instance)
+        container = f"{config.stack_name}-{service}"
+        cmd = ["docker", "logs", container, "--tail", str(lines)]
+        if follow:
+            cmd.append("-f")
+        try:
+            subprocess.run(cmd, check=False)
+        except FileNotFoundError:
+            error("Docker not found.")
+        except KeyboardInterrupt:
+            pass
 
-    config = load_config(instance)
-    container = f"{config.stack_name}-{service}"
-
-    cmd = ["docker", "logs", container, "--tail", str(lines)]
-    if follow:
-        cmd.append("-f")
-
-    try:
-        subprocess.run(cmd, check=False)
-    except FileNotFoundError:
-        error("Docker not found.")
-    except KeyboardInterrupt:
-        pass
+    for_each_instance(ctx, _logs)

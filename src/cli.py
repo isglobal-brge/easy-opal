@@ -37,16 +37,21 @@ def main(ctx, instance_name, all_instances):
         return
 
     if all_instances:
-        # Resolve all instances
         names = list_instances()
         if not names:
             click.echo("Error: No instances found.", err=True)
             sys.exit(1)
         ctx.obj["instances"] = [get_instance(n) for n in names]
-        ctx.obj["instance"] = ctx.obj["instances"][0]  # default for commands that need one
+        ctx.obj["instance"] = ctx.obj["instances"][0]
         return
 
-    # For all other commands, resolve the instance
+    # Multiple instances: -i opal1,opal2
+    if instance_name and "," in instance_name:
+        names = [n.strip() for n in instance_name.split(",") if n.strip()]
+        ctx.obj["instances"] = [get_instance(n) for n in names]
+        ctx.obj["instance"] = ctx.obj["instances"][0]
+        return
+
     try:
         ctx.obj["instance"] = resolve_instance(instance_name)
     except ValueError as e:
