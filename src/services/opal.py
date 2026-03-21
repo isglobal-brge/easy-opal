@@ -43,11 +43,11 @@ class OpalService:
         env = {
             "OPAL_ADMINISTRATOR_PASSWORD": secrets.get("OPAL_ADMIN_PASSWORD", ""),
             "ROCK_DEFAULT_ADMINISTRATOR_USERNAME": "administrator",
-            "ROCK_DEFAULT_ADMINISTRATOR_PASSWORD": secrets.get("ROCK_ADMINISTRATOR_PASSWORD", ""),
+            "ROCK_DEFAULT_ADMINISTRATOR_PASSWORD": "password",
             "ROCK_DEFAULT_MANAGER_USERNAME": "manager",
-            "ROCK_DEFAULT_MANAGER_PASSWORD": secrets.get("ROCK_MANAGER_PASSWORD", ""),
+            "ROCK_DEFAULT_MANAGER_PASSWORD": "password",
             "ROCK_DEFAULT_USER_USERNAME": "user",
-            "ROCK_DEFAULT_USER_PASSWORD": secrets.get("ROCK_USER_PASSWORD", ""),
+            "ROCK_DEFAULT_USER_PASSWORD": "password",
         }
 
         # CSRF: Opal requires "*" for its own SPA to work.
