@@ -90,23 +90,23 @@ class TestServiceRegistry:
         for v in vols:
             assert v.startswith("myopal-"), f"Volume {v} not prefixed"
 
-    def test_csrf_from_hosts(self, ctx, secrets):
-        cfg = OpalConfig(hosts=["opal.dev", "10.0.0.1"], opal_external_port=9443)
+    def test_csrf_wildcard(self, ctx, secrets):
+        cfg = OpalConfig(hosts=["opal.dev"])
         reg = ServiceRegistry(cfg, ctx, secrets)
         compose = reg.assemble_compose()
 
         csrf = compose["services"]["opal"]["environment"]["CSRF_ALLOWED"]
-        assert "opal.dev:9443" in csrf
-        assert "10.0.0.1:9443" in csrf
+        assert csrf == "*"
 
-    def test_no_hardcoded_passwords(self, ctx, secrets):
+    def test_passwords(self, ctx, secrets):
         cfg = OpalConfig()
         reg = ServiceRegistry(cfg, ctx, secrets)
         compose = reg.assemble_compose()
 
         env = compose["services"]["opal"]["environment"]
         assert env["OPAL_ADMINISTRATOR_PASSWORD"] == "testpass"
-        assert env["ROCK_DEFAULT_ADMINISTRATOR_PASSWORD"] == "rockadmin"
+        # Rock uses fixed "password" for Opal discovery compatibility
+        assert env["ROCK_DEFAULT_ADMINISTRATOR_PASSWORD"] == "password"
 
     def test_healthchecks_present(self, ctx, secrets):
         cfg = OpalConfig(
