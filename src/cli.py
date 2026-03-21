@@ -4,26 +4,11 @@ import sys
 
 import click
 
-from src.core.instance_manager import resolve_instance, list_instances
-
-HEADER = r"""
-=========================================================
-                                                       _
-                                                      | |
-  ___   __ _  ___  _   _           ___   _ __    __ _ | |
- / _ \ / _` |/ __|| | | | ______  / _ \ | '_ \  / _` || |
-|  __/| (_| |\__ \| |_| ||______|| (_) || |_) || (_| || |
- \___| \__,_||___/ \__, |         \___/ | .__/  \__,_||_|
-                    __/ |               | |
-                   |___/                |_|
-=========================================================
-"""
+from src.core.instance_manager import resolve_instance, list_instances, get_instance
 
 
 class EasyOpalGroup(click.Group):
-    """Custom group with ASCII header and clean exception handling."""
-
-    pass
+    """Custom group with clean exception handling."""
 
     def invoke(self, ctx):
         try:
@@ -40,20 +25,31 @@ class EasyOpalGroup(click.Group):
 @click.group(cls=EasyOpalGroup)
 @click.option("-i", "--instance", "instance_name", envvar="EASY_OPAL_INSTANCE", default=None,
               help="Target instance (auto-detected if only one exists).")
+@click.option("--all", "all_instances", is_flag=True, help="Apply to all instances.")
 @click.pass_context
-def main(ctx, instance_name):
+def main(ctx, instance_name, all_instances):
     """Deploy and manage OBiBa Opal environments."""
     ctx.ensure_object(dict)
+    ctx.obj["all"] = all_instances
 
     # Instance commands don't need a resolved instance
     if ctx.invoked_subcommand == "instance":
+        return
+
+    if all_instances:
+        # Resolve all instances
+        names = list_instances()
+        if not names:
+            click.echo("Error: No instances found.", err=True)
+            sys.exit(1)
+        ctx.obj["instances"] = [get_instance(n) for n in names]
+        ctx.obj["instance"] = ctx.obj["instances"][0]  # default for commands that need one
         return
 
     # For all other commands, resolve the instance
     try:
         ctx.obj["instance"] = resolve_instance(instance_name)
     except ValueError as e:
-        # If no instances exist and user is running setup, create a default one
         if ctx.invoked_subcommand == "setup" and not list_instances():
             from src.core.instance_manager import create_instance
             ctx.obj["instance"] = create_instance("default")
@@ -75,6 +71,8 @@ from src.commands.backup import backup
 from src.commands.volumes import volumes
 from src.commands.doctor import doctor
 from src.commands.support import support_bundle
+from src.commands.logs import logs
+from src.commands.exec import exec_cmd
 
 main.add_command(instance)
 main.add_command(setup)
@@ -94,3 +92,5 @@ main.add_command(backup)
 main.add_command(volumes)
 main.add_command(doctor)
 main.add_command(support_bundle)
+main.add_command(logs)
+main.add_command(exec_cmd)

@@ -227,6 +227,46 @@ def duplicate(ctx, source_name, new_name):
     info("Run 'easy-opal restart' to apply.")
 
 
+@profile.command()
+def search():
+    """Search available DataSHIELD Rock images on Docker Hub."""
+    import requests
+
+    info("Searching Docker Hub for DataSHIELD Rock images...\n")
+    try:
+        resp = requests.get(
+            "https://hub.docker.com/v2/repositories/datashield/?page_size=50",
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            error("Could not reach Docker Hub.")
+            return
+
+        repos = resp.json().get("results", [])
+        rock_repos = [r for r in repos if "rock" in r.get("name", "").lower()]
+
+        if not rock_repos:
+            dim("No Rock images found.")
+            return
+
+        table = Table(title="Available DataSHIELD Rock Images")
+        table.add_column("Image", style="cyan bold")
+        table.add_column("Description", max_width=50)
+        table.add_column("Stars")
+
+        for r in sorted(rock_repos, key=lambda x: x.get("star_count", 0), reverse=True):
+            name = f"datashield/{r['name']}"
+            desc = (r.get("description") or "")[:50]
+            stars = str(r.get("star_count", 0))
+            table.add_row(name, desc, stars)
+
+        console.print(table)
+        console.print(f"\n[dim]Add with: easy-opal profile add datashield/<image>[/dim]")
+
+    except Exception as e:
+        error(f"Search failed: {e}")
+
+
 @profile.command(name="list")
 @click.pass_context
 def list_profiles(ctx):

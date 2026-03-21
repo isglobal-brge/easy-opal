@@ -25,6 +25,9 @@ easy-opal = "src.cli:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
 # Templates (maintenance.html) are auto-included since they're inside src/
