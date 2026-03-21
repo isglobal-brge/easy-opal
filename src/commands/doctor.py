@@ -80,7 +80,8 @@ def _check_instance(instance: InstanceContext) -> list[Check]:
 
     # Secrets
     secrets = load_secrets(instance)
-    if secrets.get("OPAL_ADMIN_PASSWORD"):
+    admin_pw = secrets.get("OPAL_ADMIN_PASSWORD") or secrets.get("ARMADILLO_ADMIN_PASSWORD")
+    if admin_pw:
         mode = os.stat(instance.secrets_path).st_mode & 0o777 if instance.secrets_path.exists() else None
         if mode == 0o600:
             checks.append(Check("Secrets", "ok", f"{len(secrets)} secrets, permissions 0o600"))

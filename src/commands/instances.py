@@ -108,7 +108,7 @@ def list_cmd():
         cfg = load_config(ctx)
         ssl = str(cfg.ssl.strategy.value)
         services = []
-        services.append("opal")
+        services.append(cfg.flavor)
         if cfg.agate.enabled:
             services.append("agate")
         if cfg.mica.enabled:

@@ -118,13 +118,24 @@ def change_version(ctx, version, service, pull):
         success(f"{service} version set to {new}")
 
 
+def _admin_pw_key(instance: InstanceContext) -> str:
+    """Get the correct password key based on flavor."""
+    from src.core.config_manager import config_exists, load_config
+    if config_exists(instance):
+        cfg = load_config(instance)
+        if cfg.flavor == "armadillo":
+            return "ARMADILLO_ADMIN_PASSWORD"
+    return "OPAL_ADMIN_PASSWORD"
+
+
 @config.command(name="show-password")
 @click.pass_context
 def show_password(ctx):
-    """Show the current Opal admin password."""
+    """Show the current admin password."""
     instance: InstanceContext = ctx.obj["instance"]
     secrets = load_secrets(instance)
-    pw = secrets.get("OPAL_ADMIN_PASSWORD")
+    key = _admin_pw_key(instance)
+    pw = secrets.get(key)
     if pw:
         console.print(f"[bold]{pw}[/bold]")
     else:
@@ -135,14 +146,15 @@ def show_password(ctx):
 @click.argument("password", required=False)
 @click.pass_context
 def change_password(ctx, password):
-    """Change the Opal admin password."""
+    """Change the admin password."""
     instance: InstanceContext = ctx.obj["instance"]
     secrets = load_secrets(instance)
     new_pw = password or Prompt.ask("New admin password", password=True)
     if not new_pw or not new_pw.strip():
         error("Password cannot be empty.")
         return
-    secrets["OPAL_ADMIN_PASSWORD"] = new_pw
+    key = _admin_pw_key(instance)
+    secrets[key] = new_pw
     save_secrets(secrets, instance)
 
     # Regenerate compose so the env var updates
