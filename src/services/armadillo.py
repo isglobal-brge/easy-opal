@@ -23,9 +23,11 @@ class ArmadilloService:
             "ARMADILLO_CONTAINER_PREFIX": config.stack_name,
         }
 
-        # R server URL (Rock always uses port 8085)
+        # R server connection (Rock always uses port 8085)
         if config.profiles:
             env["SPRING_RSERVER_URL"] = f"http://{config.profiles[0].name}:8085"
+            env["SPRING_RSERVER_USERNAME"] = "manager"
+            env["SPRING_RSERVER_PASSWORD"] = "password"
 
         volumes = [
             f"{config.stack_name}-armadillo-data:/data",
