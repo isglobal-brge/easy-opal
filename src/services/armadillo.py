@@ -1,7 +1,36 @@
 """Armadillo DataSHIELD server: lightweight alternative to Opal."""
 
+import yaml
+
 from src.models.config import OpalConfig
 from src.models.instance import InstanceContext
+
+
+def _generate_application_yml(config: OpalConfig, ctx: InstanceContext) -> None:
+    """Generate application.yml for Armadillo with correct Rock profile config."""
+    profiles = []
+    for i, p in enumerate(config.profiles):
+        profiles.append({
+            "name": "default" if i == 0 else p.name,
+            "image": f"{p.image}:{p.tag}",
+            "host": p.name,  # Docker service name
+            "port": 8085,
+            "package-whitelist": ["dsBase"],
+        })
+
+    app_config = {
+        "armadillo": {
+            "docker-management-enabled": False,
+            "docker-run-in-container": True,
+            "profiles": profiles,
+        },
+    }
+
+    config_dir = ctx.data_dir / "armadillo-config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "application.yml").write_text(
+        yaml.dump(app_config, default_flow_style=False, sort_keys=False)
+    )
 
 
 class ArmadilloService:
@@ -15,21 +44,16 @@ class ArmadilloService:
     ) -> dict:
         admin_pw = secrets.get("ARMADILLO_ADMIN_PASSWORD", "")
 
+        # Generate application.yml with Rock profile config
+        _generate_application_yml(config, ctx)
+
         env = {
             "SPRING_SECURITY_USER_NAME": "admin",
             "SPRING_SECURITY_USER_PASSWORD": admin_pw,
             "SPRING_SECURITY_USER_ROLES": "SU",
             "SERVER_FORWARD_HEADERS_STRATEGY": "NATIVE",
-            "ARMADILLO_DOCKER_MANAGEMENT_ENABLED": "false",
-            "ARMADILLO_DOCKER_RUN_IN_CONTAINER": "true",
             "ARMADILLO_CONTAINER_PREFIX": config.stack_name,
         }
-
-        # R server connection (Rock always uses port 8085)
-        if config.profiles:
-            env["SPRING_RSERVER_URL"] = f"http://{config.profiles[0].name}:8085"
-            env["SPRING_RSERVER_USERNAME"] = "manager"
-            env["SPRING_RSERVER_PASSWORD"] = "password"
 
         volumes = [
             f"{config.stack_name}-armadillo-data:/data",
