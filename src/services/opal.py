@@ -50,20 +50,9 @@ class OpalService:
             "ROCK_DEFAULT_USER_PASSWORD": secrets.get("ROCK_USER_PASSWORD", ""),
         }
 
-        # CSRF: computed from hosts with port (browser sends Origin with port)
-        if config.hosts:
-            csrf_origins = []
-            for h in config.hosts:
-                if config.ssl.strategy == SSLStrategy.NONE:
-                    csrf_origins.append(f"http://{h}:{config.opal_http_port}")
-                else:
-                    csrf_origins.append(f"https://{h}:{config.opal_external_port}")
-                    # Also allow without port for standard ports
-                    if config.opal_external_port == 443:
-                        csrf_origins.append(f"https://{h}")
-            env["CSRF_ALLOWED"] = ",".join(csrf_origins)
-        else:
-            env["CSRF_ALLOWED"] = "*"
+        # CSRF: Opal requires "*" for its own SPA to work.
+        # Restricting it breaks the login page (403 on /ws/auth/providers).
+        env["CSRF_ALLOWED"] = "*"
 
         # Proxy settings
         if config.ssl.strategy == SSLStrategy.NONE:
