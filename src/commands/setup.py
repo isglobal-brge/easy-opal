@@ -292,8 +292,9 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
     secrets = ensure_secrets(instance, config)
 
     # Admin password: user-provided or auto-generated
+    pw_key = "ARMADILLO_ADMIN_PASSWORD" if config.flavor == "armadillo" else "OPAL_ADMIN_PASSWORD"
     if password:
-        secrets["OPAL_ADMIN_PASSWORD"] = password
+        secrets[pw_key] = password
         from src.core.secrets_manager import save_secrets
         save_secrets(secrets, instance)
     elif is_interactive:
@@ -303,13 +304,13 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
             while True:
                 custom_pw = P.ask("  Admin password", password=True)
                 if custom_pw and custom_pw.strip():
-                    secrets["OPAL_ADMIN_PASSWORD"] = custom_pw
+                    secrets[pw_key] = custom_pw
                     from src.core.secrets_manager import save_secrets
                     save_secrets(secrets, instance)
                     break
                 error("  Password cannot be empty.")
 
-    admin_pw = secrets["OPAL_ADMIN_PASSWORD"]
+    admin_pw = secrets[pw_key]
     success(f"Configuration saved to {instance.config_path}")
     console.print(f"\n[bold]Admin password:[/bold] {admin_pw}")
     dim("Run 'easy-opal config show-password' to retrieve it later.")
