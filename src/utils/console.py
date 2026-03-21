@@ -48,3 +48,12 @@ def info(msg: str) -> None:
 
 def dim(msg: str) -> None:
     console.print(f"[dim]{msg}[/dim]")
+
+
+def for_each_instance(ctx, fn):
+    """Run fn(instance) for --all or -i a,b,c. Falls back to single instance."""
+    instances = ctx.obj.get("instances", [ctx.obj["instance"]])
+    for inst in instances:
+        if len(instances) > 1:
+            console.print(f"\n[bold cyan]--- {inst.name} ---[/bold cyan]")
+        fn(inst)
