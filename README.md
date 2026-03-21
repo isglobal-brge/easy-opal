@@ -266,4 +266,4 @@ easy-opal update    # Pull latest from git + update dependencies
 - Xavier Escribà Montagut — ISGlobal
 - Juan R González — ISGlobal
 
-[Bioinformatics Research Group in Epidemiology (BRGE)](https://brge.isglobal.org) — [Barcelona Institute for Global Health (ISGlobal)](https://www.isglobal.org)
+[Bioinformatic Research Group in Epidemiology (BRGE)](https://brge.isglobal.org) — [Barcelona Institute for Global Health (ISGlobal)](https://www.isglobal.org)

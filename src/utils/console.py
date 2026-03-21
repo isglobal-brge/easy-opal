@@ -22,7 +22,7 @@ def display_header() -> None:
         "Made with [red]♥[/red] by [bold link=https://davidsarratgonzalez.github.io]David Sarrat González[/bold link]"
     )
     console.print(
-        "[bold link=https://brge.isglobal.org]Bioinformatics Research Group in Epidemiology (BRGE)[/bold link]"
+        "[bold link=https://brge.isglobal.org]Bioinformatic Research Group in Epidemiology (BRGE)[/bold link]"
     )
     console.print(
         "[bold link=https://www.isglobal.org]Barcelona Institute for Global Health (ISGlobal)[/bold link]"
