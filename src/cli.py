@@ -1,36 +1,96 @@
+"""CLI entry point. Routes all commands and manages instance context."""
+
+import sys
+
 import click
-from rich.console import Console
 
-from src.commands.setup_cmd import setup
-from src.commands.lifecycle_cmds import up, down, reset, status
-from src.commands.profile_cmds import profile
-from src.commands.config_cmds import config
-from src.commands.cert_cmds import cert
-from src.commands.update_cmd import update
-from src.commands.diagnostic_cmd import diagnose
+from src.core.instance_manager import resolve_instance, list_instances
+
+HEADER = r"""
+=========================================================
+                                                       _
+                                                      | |
+  ___   __ _  ___  _   _           ___   _ __    __ _ | |
+ / _ \ / _` |/ __|| | | | ______  / _ \ | '_ \  / _` || |
+|  __/| (_| |\__ \| |_| ||______|| (_) || |_) || (_| || |
+ \___| \__,_||___/ \__, |         \___/ | .__/  \__,_||_|
+                    __/ |               | |
+                   |___/                |_|
+=========================================================
+"""
 
 
-console = Console()
+class EasyOpalGroup(click.Group):
+    """Custom group with ASCII header and clean exception handling."""
 
-@click.group()
-def main():
-    """
-    A command-line tool to easily set up and manage an OBiBa Opal environment.
-    """
     pass
 
-# Add command groups
+    def invoke(self, ctx):
+        try:
+            return super().invoke(ctx)
+        except click.exceptions.Exit:
+            raise
+        except click.exceptions.Abort:
+            raise
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+
+
+@click.group(cls=EasyOpalGroup)
+@click.option("-i", "--instance", "instance_name", envvar="EASY_OPAL_INSTANCE", default=None,
+              help="Target instance (auto-detected if only one exists).")
+@click.pass_context
+def main(ctx, instance_name):
+    """Deploy and manage OBiBa Opal environments."""
+    ctx.ensure_object(dict)
+
+    # Instance commands don't need a resolved instance
+    if ctx.invoked_subcommand == "instance":
+        return
+
+    # For all other commands, resolve the instance
+    try:
+        ctx.obj["instance"] = resolve_instance(instance_name)
+    except ValueError as e:
+        # If no instances exist and user is running setup, create a default one
+        if ctx.invoked_subcommand == "setup" and not list_instances():
+            from src.core.instance_manager import create_instance
+            ctx.obj["instance"] = create_instance("default")
+        else:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+
+
+# Register commands
+from src.commands.instances import instance
+from src.commands.setup import setup
+from src.commands.lifecycle import up, down, restart, status, reset, plan, validate
+from src.commands.config import config
+from src.commands.certs import cert
+from src.commands.profiles import profile
+from src.commands.diagnose import diagnose
+from src.commands.update import update
+from src.commands.backup import backup
+from src.commands.volumes import volumes
+from src.commands.doctor import doctor
+from src.commands.support import support_bundle
+
+main.add_command(instance)
 main.add_command(setup)
 main.add_command(up)
 main.add_command(down)
-main.add_command(reset)
+main.add_command(restart)
 main.add_command(status)
-main.add_command(profile)
+main.add_command(reset)
+main.add_command(plan)
+main.add_command(validate)
 main.add_command(config)
 main.add_command(cert)
-main.add_command(update)
+main.add_command(profile)
 main.add_command(diagnose)
-
-
-if __name__ == '__main__':
-    main() 
+main.add_command(update)
+main.add_command(backup)
+main.add_command(volumes)
+main.add_command(doctor)
+main.add_command(support_bundle)
