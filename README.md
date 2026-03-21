@@ -2,23 +2,6 @@
 
 A command-line tool to deploy and manage [OBiBa Opal](https://www.obiba.org/pages/products/opal/) environments with Docker. It handles everything: setup wizard, multi-instance management, SSL certificates, Rock R server profiles, additional databases, backups, health diagnostics, and optional Agate/Mica integration.
 
-> [Requirements](#requirements) |
-> [Installation](#installation) |
-> [First deployment](#first-deployment) |
-> [Managing](#managing) |
-> [Configuration](#configuration) |
-> [Multi-instance](#instances) |
-> [SSL](#ssl) |
-> [Databases](#databases) |
-> [Agate/Mica](#agate-mica) |
-> [Backup](#backup) |
-> [Diagnostics](#diagnostics) |
-> [Presets](#presets) |
-> [Rock](#rock) |
-> [Volumes](#volumes) |
-> [Update](#update) |
-> [Flags](#flags)
-
 ## Requirements
 
 - **Docker** with Compose V2 (or Podman with Compose)
