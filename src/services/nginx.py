@@ -32,7 +32,9 @@ class NginxService:
                 "restart": "always",
                 "ports": ports,
                 "volumes": volumes,
-                "depends_on": {"opal": {"condition": "service_healthy"}},
+                "depends_on": {
+                    ("armadillo" if config.flavor == "armadillo" else "opal"): {"condition": "service_healthy"}
+                },
                 "healthcheck": {
                     "test": ["CMD-SHELL", "service nginx status || exit 1"],
                     "interval": "10s",

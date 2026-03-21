@@ -7,6 +7,8 @@ from src.models.config import (
     AgateConfig,
     SmtpConfig,
     MicaConfig,
+    ArmadilloConfig,
+    KeycloakConfig,
 )
 from src.models.instance import InstanceContext
 from src.models.enums import SSLStrategy, DatabaseType
@@ -18,7 +20,10 @@ __all__ = [
     "ProfileConfig",
     "WatchtowerConfig",
     "AgateConfig",
+    "SmtpConfig",
     "MicaConfig",
+    "ArmadilloConfig",
+    "KeycloakConfig",
     "InstanceContext",
     "SSLStrategy",
     "DatabaseType",

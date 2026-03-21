@@ -41,6 +41,22 @@ PRESETS: dict[str, dict] = {
             "mica": {"enabled": True},
         },
     },
+    "armadillo-dev": {
+        "description": "Armadillo DataSHIELD server for development",
+        "config": {
+            "flavor": "armadillo",
+            "ssl": {"strategy": "self-signed"},
+        },
+    },
+    "armadillo-prod": {
+        "description": "Armadillo with Keycloak OIDC for production",
+        "config": {
+            "flavor": "armadillo",
+            "ssl": {"strategy": "letsencrypt"},
+            "keycloak": {"enabled": True},
+            "watchtower": {"enabled": True, "poll_interval_hours": 24},
+        },
+    },
 }
 
 

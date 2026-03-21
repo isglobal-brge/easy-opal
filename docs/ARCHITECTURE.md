@@ -2,138 +2,110 @@
 
 Technical reference for the easy-opal codebase.
 
-## Directory Structure
+## File Structure
 
 ```
-easy-opal/                     # Entry point + Python project root
-  easy-opal                    # Bash bootstrap (installs uv, delegates to Python)
-  pyproject.toml               # Dependencies: click, rich, pydantic, cryptography, pyyaml, requests
-  .python-version              # 3.11 (managed by uv)
-  src/
-    cli.py                     # Click group, global -i/--instance option
-    models/
-      config.py                # OpalConfig + nested Pydantic models
-      instance.py              # InstanceContext dataclass (paths for one deployment)
-      enums.py                 # SSLStrategy, DatabaseType
-    core/
-      config_manager.py        # load_config / save_config (Pydantic-based)
-      secrets_manager.py       # secrets.env: generate, load, save, ensure
-      instance_manager.py      # Multi-instance CRUD + registry + lock + validation
-      docker.py                # Docker Compose: generate, run, up, down, health-wait
-      ssl.py                   # CA generation, server certs, persistent CA
-      nginx.py                 # NGINX config from templates
-      migration.py             # Schema version migrations (v0 → v1 → v2)
-    services/
-      __init__.py              # ServiceModule protocol + ServiceRegistry
-      mongo.py                 # MongoDB: compose + healthcheck
-      opal.py                  # Opal: compose + env var aggregation + CSRF
-      nginx.py                 # NGINX: compose + SSL mounts
-      certbot.py               # Certbot (Let's Encrypt only)
-      rock.py                  # Rock profiles: compose + healthcheck
-      database.py              # PostgreSQL/MySQL/MariaDB: compose + healthcheck
-      watchtower.py            # Watchtower auto-updates
-    commands/
-      setup.py                 # Interactive/non-interactive setup wizard
-      lifecycle.py             # up, down, restart, status, reset
-      config.py                # change-version, change-port, change-hosts, change-ssl, change-password, watchtower, remove-database
-      certs.py                 # regenerate, info, ca-regenerate
-      profiles.py              # add, remove, list
-      instances.py             # create, list, remove, info
-      backup.py                # create, restore, list
-      volumes.py               # list, prune
-      diagnose.py              # Stack health checks
-      doctor.py                # easy-opal self-diagnostics
-      update.py                # Git-based self-update
-    templates/
-      nginx_https.conf.tpl     # HTTPS reverse proxy
-      nginx_acme.conf.tpl      # HTTP-only for Let's Encrypt
-      maintenance.html         # Auto-refresh maintenance page
-    utils/
-      console.py               # Rich console + helpers
-      network.py               # Port checking, IP detection
-      crypto.py                # Password generation
-  tests/
-    test_models.py             # Pydantic model tests (7)
-    test_services.py           # Service registry tests (11)
-    test_selenium_login.py     # E2E: page load, auth, CSRF, security (13)
-```
-
-## Data Flow
-
-```
-./easy-opal <command>
-  │
-  ▼
-easy-opal (bash) → uv run → python -m src.cli
-  │
-  ▼
-cli.py → resolves instance → routes to command
-  │
-  ▼
-command → uses core modules:
-  ├── config_manager.py   (load/save OpalConfig)
-  ├── secrets_manager.py  (load/save secrets.env)
-  ├── docker.py           (ServiceRegistry → compose → docker compose up)
-  ├── ssl.py              (CA + server certs)
-  └── nginx.py            (nginx.conf from template)
+src/
+  cli.py                     # Click group, global -i/--instance, command routing
+  __main__.py                # python -m src entry point
+  models/
+    config.py                # Pydantic: OpalConfig, SSLConfig, DatabaseConfig, ProfileConfig,
+                             #   WatchtowerConfig, AgateConfig, SmtpConfig, MicaConfig
+    instance.py              # InstanceContext dataclass (computed paths for one deployment)
+    enums.py                 # SSLStrategy, DatabaseType
+  core/
+    config_manager.py        # load_config / save_config (Pydantic + migration)
+    secrets_manager.py       # secrets.env: generate, load, save, ensure
+    instance_manager.py      # Multi-instance CRUD, registry, lock, name validation
+    docker.py                # Docker/Podman detection, compose generate/run/up/down
+    ssl.py                   # Persistent CA, server certs, file permissions
+    nginx.py                 # Programmatic NGINX config (multi-service routing)
+    migration.py             # Schema version migrations (v0 -> v1 -> v2)
+    agate_config.py          # Generate Agate application-prod.yml for email
+  services/
+    __init__.py              # ServiceModule protocol + ServiceRegistry
+    mongo.py                 # MongoDB
+    opal.py                  # Opal (env var aggregation, CSRF)
+    nginx.py                 # NGINX (SSL, multi-service routing)
+    certbot.py               # Certbot (Let's Encrypt only)
+    rock.py                  # Rock profiles (one per profile)
+    database.py              # PostgreSQL / MySQL / MariaDB (local or external)
+    watchtower.py            # Watchtower auto-updates
+    agate.py                 # Agate authentication (opt-in)
+    mailpit.py               # Mailpit dev mail (opt-in, with Agate)
+    mica.py                  # Mica data portal (opt-in)
+    elasticsearch.py         # Elasticsearch (opt-in, with Mica)
+  presets/
+    __init__.py              # Named config templates (opal-dev, opal-prod, etc.)
+  commands/
+    setup.py                 # Interactive/non-interactive setup wizard
+    lifecycle.py             # up, down, restart, status, reset, plan, validate
+    config.py                # change-*, show-*, watchtower, agate, mica, remove-database
+    certs.py                 # regenerate, info, ca-regenerate
+    profiles.py              # add, remove, list
+    instances.py             # create, list, info, remove
+    backup.py                # create, restore, list
+    volumes.py               # list, prune
+    diagnose.py              # Stack health checks (containers, SSL, endpoints, databases)
+    doctor.py                # Self-diagnostics (Docker, config, secrets, permissions)
+    support.py               # Support bundle (redacted diagnostics zip)
+    update.py                # Smart update (git or uv tool)
+  templates/
+    maintenance.html         # Auto-refresh maintenance page
+  utils/
+    console.py               # Rich console + helpers
+    network.py               # Port check, free port, local IP, port validation
+    crypto.py                # Password generation
+    diff.py                  # Config diff, compose preview
+tests/
+  test_models.py             # Pydantic model tests
+  test_services.py           # Service registry tests
+  test_migration.py          # Schema migration tests
+  test_core.py               # Config, secrets, SSL, network, crypto tests
+  test_selenium_login.py     # E2E: page load, auth, CSRF, security
+install.sh                   # One-liner installer
+pyproject.toml               # Dependencies: click, rich, pydantic, pyyaml, cryptography, requests
+.python-version              # 3.11 (managed by uv)
 ```
 
 ## Instance Layout
 
 ```
 ~/.easy-opal/
-  registry.json              # Global index: name → path, created_at, last_accessed, stack_name
+  registry.json              # name -> path, created_at, last_accessed, stack_name
   instances/
     <name>/
       config.json            # Source of truth (Pydantic OpalConfig, schema_version: 2)
       secrets.env            # KEY=VALUE, 0o600 permissions
-      docker-compose.yml     # Generated — never edit
-      .lock                  # File lock (PID, auto-cleans after 10 min)
+      docker-compose.yml     # Generated from config (never edit manually)
+      .lock                  # File lock (PID, fcntl)
       data/
         certs/{ca,opal}.{crt,key}
         nginx/nginx.conf
         html/maintenance.html
         letsencrypt/{www,conf}/
+        agate/conf/application-prod.yml
       backups/*.tar.gz
 ```
 
 ## Service Registry
 
-Each service is a module in `src/services/` that implements:
+Each service is a module in `src/services/` implementing:
 
 ```python
 class ServiceModule(Protocol):
     name: str
-    def is_enabled(config) → bool
-    def compose_services(config, ctx, secrets) → dict    # Docker Compose fragment
-    def compose_volumes(config) → dict                   # Named volumes
-    def opal_env_vars(config, secrets) → dict            # Env vars for the Opal container
+    def is_enabled(config) -> bool
+    def compose_services(config, ctx, secrets) -> dict
+    def compose_volumes(config) -> dict
+    def opal_env_vars(config, secrets) -> dict
 ```
 
-`ServiceRegistry` collects all enabled modules, merges their compose fragments, and aggregates Opal environment variables. Adding a new service = one new file.
+`ServiceRegistry` collects all enabled modules, merges their compose fragments, and aggregates Opal environment variables. Adding a new service = one file.
 
-## Config Model
+Services: mongo, opal, nginx, certbot, rock (per profile), database (per db), watchtower, agate, mailpit, mica, elasticsearch.
 
-```python
-OpalConfig(
-    schema_version = 2,
-    stack_name = "easy-opal",
-    hosts = ["localhost", "127.0.0.1"],
-    opal_version = "latest",
-    mongo_version = "latest",
-    nginx_version = "latest",
-    opal_external_port = 443,
-    opal_http_port = 8080,
-    ssl = SSLConfig(strategy="self-signed", le_email=""),
-    profiles = [ProfileConfig(name="rock", image="datashield/rock-base", tag="latest")],
-    databases = [],
-    watchtower = WatchtowerConfig(enabled=False, poll_interval_hours=24, cleanup=True),
-)
-```
-
-Passwords are NOT in config. They're in `secrets.env`, auto-generated with `secrets.token_urlsafe(24)`.
-
-## Config Changes → Regeneration Chain
+## Config Changes -> Regeneration
 
 | Change | Regenerates |
 |--------|-------------|
@@ -141,34 +113,54 @@ Passwords are NOT in config. They're in `secrets.env`, auto-generated with `secr
 | Port | CSRF + NGINX + Compose |
 | SSL strategy | Certs + NGINX + Compose |
 | Version | Compose |
-| Password | Compose (env var) |
+| Password | Compose |
 | Watchtower | Compose |
 | Database add/remove | Compose |
+| Agate enable/disable | Agate config + NGINX + Compose |
+| Agate mail mode | Agate config + Compose |
+| Mica enable/disable | Compose |
 
 ## Volume Naming
 
-All named volumes use `{stack_name}-{service}-data` to prevent collisions between instances:
+All named volumes: `{stack_name}-{service}-data`. No collisions between instances.
 
-| Service | Volume |
-|---------|--------|
-| MongoDB | `{stack}-mongo-data` |
-| Opal | `{stack}-opal-data` |
-| Rock | `{stack}-{profile}-data` |
-| Database | `{stack}-{db_name}-data` |
+## Container Runtime
+
+Auto-detects Docker or Podman. Uses `docker compose` or `podman compose`.
 
 ## Schema Migration
 
-`migration.py` handles upgrades from older config formats:
-
-- **v0 → v1**: Adds `schema_version`, removes `opal_admin_password`, removes `mongodb` key
-- **v1 → v2**: Removes `cert_path`/`key_path` from SSL (now computed), converts `poll_interval` seconds to `poll_interval_hours`, removes `certbot_version`
-
-Migration runs automatically on `load_config()`.
+Runs on `load_config()`: v0 -> v1 -> v2. Persists migrated config automatically.
 
 ## Healthcheck Chain
 
 ```
-mongo (mongosh ping) → opal (TCP 8080) → nginx (TCP 80) + rock (TCP 8085)
+mongo (mongosh ping)
+  -> opal (TCP 8080, start_period: 60s)
+    -> nginx (service status)
+    -> rock (TCP 8085, start_period: 30s)
+    -> agate (TCP 8444, start_period: 30s)
+    -> mica (TCP 8445, start_period: 60s)
 ```
 
-All use `depends_on: {service: {condition: service_healthy}}`. Docker Compose `--wait` ensures readiness before the CLI returns.
+All use `depends_on: {service: {condition: service_healthy}}`.
+
+## NGINX Multi-Service Routing
+
+Generated programmatically from config. One location block per enabled service:
+
+- `/` -> opal:8080
+- `/agate/` -> agate:8444 (if enabled)
+- `/mica/` -> mica:8445 (if enabled)
+
+Each location has independent `error_page 502 503 504` pointing to the maintenance page with path-aware auto-refresh.
+
+## Security
+
+- Passwords: `secrets.token_urlsafe(24)`, stored in `secrets.env` (0o600)
+- SSL keys: 0o600 permissions
+- CSRF: computed from hosts + port, not `*`
+- Persistent CA: regenerating server cert preserves browser trust
+- PEM validation on manual cert import
+- Atomic file locking (fcntl)
+- Let's Encrypt rollback to self-signed on failure
