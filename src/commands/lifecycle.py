@@ -9,59 +9,69 @@ from src.core.docker import compose_up, compose_down, compose_restart, compose_s
 from src.utils.console import console, success, error, info
 
 
+def _for_each_instance(ctx, fn):
+    """Run fn(instance) for each instance when --all is used, or just the selected one."""
+    instances = ctx.obj.get("instances", [ctx.obj["instance"]])
+    for inst in instances:
+        if len(instances) > 1:
+            console.print(f"\n[bold cyan]--- {inst.name} ---[/bold cyan]")
+        fn(inst)
+
+
 @click.command()
 @click.pass_context
 def up(ctx):
     """Start the stack (convergent — only recreates changed services)."""
-    instance: InstanceContext = ctx.obj["instance"]
-    if not config_exists(instance):
-        error("No configuration found. Run 'easy-opal setup' first.")
-        return
+    def _up(instance):
+        if not config_exists(instance):
+            error(f"[{instance.name}] No configuration found.")
+            return
+        config = load_config(instance)
+        info(f"Starting {instance.name}...")
+        if compose_up(instance, config):
+            success(f"{instance.name} is running.")
     if not check_docker():
         return
-    config = load_config(instance)
-    info("Starting stack...")
-    if compose_up(instance, config):
-        success("Stack is running.")
+    _for_each_instance(ctx, _up)
 
 
 @click.command()
 @click.pass_context
 def down(ctx):
     """Stop the stack."""
-    instance: InstanceContext = ctx.obj["instance"]
-    if not config_exists(instance):
-        error("No configuration found.")
-        return
-    config = load_config(instance)
-    compose_down(instance, config)
-    success("Stack stopped.")
+    def _down(instance):
+        if not config_exists(instance):
+            return
+        config = load_config(instance)
+        compose_down(instance, config)
+        success(f"{instance.name} stopped.")
+    _for_each_instance(ctx, _down)
 
 
 @click.command()
 @click.pass_context
 def restart(ctx):
     """Restart the stack (full down + up cycle)."""
-    instance: InstanceContext = ctx.obj["instance"]
-    if not config_exists(instance):
-        error("No configuration found.")
-        return
-    config = load_config(instance)
-    info("Restarting stack...")
-    if compose_restart(instance, config):
-        success("Stack restarted.")
+    def _restart(instance):
+        if not config_exists(instance):
+            return
+        config = load_config(instance)
+        info(f"Restarting {instance.name}...")
+        if compose_restart(instance, config):
+            success(f"{instance.name} restarted.")
+    _for_each_instance(ctx, _restart)
 
 
 @click.command()
 @click.pass_context
 def status(ctx):
     """Show container status."""
-    instance: InstanceContext = ctx.obj["instance"]
-    if not config_exists(instance):
-        error("No configuration found.")
-        return
-    config = load_config(instance)
-    compose_status(instance, config)
+    def _status(instance):
+        if not config_exists(instance):
+            return
+        config = load_config(instance)
+        compose_status(instance, config)
+    _for_each_instance(ctx, _status)
 
 
 @click.command()
