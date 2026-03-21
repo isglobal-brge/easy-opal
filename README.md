@@ -30,16 +30,19 @@ easy-opal update
 ## Quick Start
 
 ```bash
-# Create and configure a new deployment
-./easy-opal setup
+# Interactive wizard
+easy-opal setup
 
-# Or non-interactive
-./easy-opal setup \
+# Non-interactive
+easy-opal setup \
   --stack-name my-opal \
   --host localhost \
   --port 8443 \
   --ssl-strategy self-signed \
   --yes
+
+# With a preset
+easy-opal setup --preset opal-prod --host opal.example.com --yes
 ```
 
 The wizard walks you through: stack name, service versions, SSL strategy, databases, and Watchtower.
@@ -91,6 +94,9 @@ easy-opal setup --yes [flags]      # Non-interactive
 | `--database TEXT` | Add database: `type:name:port:user[:version]` (repeatable) |
 | `--watchtower` | Enable Watchtower auto-updates |
 | `--watchtower-interval INT` | Check interval in hours (default: 24) |
+| `--with-agate` | Enable Agate authentication server |
+| `--with-mica` | Enable Mica data portal (implies Agate) |
+| `--preset` | `opal-dev`, `opal-prod`, `opal-proxy`, `opal-agate`, `obiba-full` |
 | `--yes` | Skip all prompts |
 
 ### Stack Lifecycle
@@ -113,6 +119,7 @@ All changes auto-regenerate the Docker Compose file, NGINX config, and certifica
 ```bash
 easy-opal config show                              # Display config
 easy-opal config show-version                      # Show all service versions
+easy-opal config show-password                     # Show admin password
 easy-opal config change-version 7.0 --service mongo  # Change MongoDB version
 easy-opal config change-port 9443                  # Change HTTPS port (updates CSRF)
 easy-opal config change-hosts opal.dev 10.0.0.1    # Change hosts (regenerates certs + CSRF)
@@ -121,8 +128,9 @@ easy-opal config change-ssl manual --ssl-cert /path/to/cert --ssl-key /path/to/k
 easy-opal config change-password                   # Change admin password
 easy-opal config remove-database analytics --yes   # Remove a database
 easy-opal config watchtower enable --interval 6    # Enable Watchtower (6h checks)
-easy-opal config watchtower disable                # Disable Watchtower
-easy-opal config watchtower status                 # Show Watchtower config
+easy-opal config agate enable --mail-mode smtp --smtp-host smtp.gmail.com
+easy-opal config agate status                      # Show Agate/mail config
+easy-opal config mica enable                       # Enable Mica (auto-enables Agate)
 ```
 
 ### SSL Certificates
@@ -191,12 +199,15 @@ easy-opal volumes prune   # Remove unused volumes (stops stack first)
 
 All volumes are prefixed with the stack name to prevent collisions between instances.
 
-### Health Checks
+### Health & Diagnostics
 
 ```bash
-easy-opal diagnose           # Stack health: containers, SSL, endpoints
+easy-opal diagnose           # Stack health: containers, SSL, endpoints, databases
 easy-opal diagnose --quiet   # Summary only
 easy-opal doctor             # easy-opal itself: Docker, config, secrets, permissions
+easy-opal validate           # Check config is valid without starting anything
+easy-opal plan               # Preview generated docker-compose.yml
+easy-opal support-bundle     # Collect redacted diagnostics for sharing
 ```
 
 ### Self-Update
