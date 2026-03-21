@@ -18,7 +18,7 @@ class DatabaseConfig(BaseModel):
     database: str = "opaldata"
     version: str = "latest"
     external: bool = False
-    host: str = ""  # Only for external databases
+    host: str = ""
 
 
 class ProfileConfig(BaseModel):
@@ -56,8 +56,22 @@ class MicaConfig(BaseModel):
     elasticsearch_version: str = "8.16.1"
 
 
+class KeycloakConfig(BaseModel):
+    enabled: bool = False
+    version: str = "25.0.6"
+    admin_user: str = "admin"
+    port: int = 8080
+
+
+class ArmadilloConfig(BaseModel):
+    version: str = "latest"
+    port: int = 8080
+    auth_mode: Literal["local", "oidc"] = "local"
+
+
 class OpalConfig(BaseModel):
     schema_version: int = 2
+    flavor: Literal["opal", "armadillo"] = "opal"
     stack_name: str = "easy-opal"
     hosts: list[str] = Field(default_factory=lambda: ["localhost", "127.0.0.1"])
     opal_version: str = "latest"
@@ -73,3 +87,5 @@ class OpalConfig(BaseModel):
     watchtower: WatchtowerConfig = Field(default_factory=WatchtowerConfig)
     agate: AgateConfig = Field(default_factory=AgateConfig)
     mica: MicaConfig = Field(default_factory=MicaConfig)
+    armadillo: ArmadilloConfig = Field(default_factory=ArmadilloConfig)
+    keycloak: KeycloakConfig = Field(default_factory=KeycloakConfig)

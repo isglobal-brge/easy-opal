@@ -38,37 +38,51 @@ class ServiceRegistry:
         self._register_all()
 
     def _register_all(self) -> None:
-        from src.services.mongo import MongoService
-        from src.services.opal import OpalService
         from src.services.nginx import NginxService
         from src.services.certbot import CertbotService
-        from src.services.rock import RockService
-        from src.services.database import DatabaseService
         from src.services.watchtower import WatchtowerService
-        from src.services.agate import AgateService
-        from src.services.mailpit import MailpitService
-        from src.services.mica import MicaService
-        from src.services.elasticsearch import ElasticsearchService
 
+        # Common services (both flavors)
         candidates: list[ServiceModule] = [
-            MongoService(),
-            OpalService(),
             NginxService(),
             CertbotService(),
             WatchtowerService(),
-            AgateService(),
-            MailpitService(),
-            MicaService(),
-            ElasticsearchService(),
         ]
 
-        # One RockService per profile
-        for profile in self.config.profiles:
-            candidates.append(RockService(profile))
+        if self.config.flavor == "opal":
+            from src.services.mongo import MongoService
+            from src.services.opal import OpalService
+            from src.services.rock import RockService
+            from src.services.database import DatabaseService
+            from src.services.agate import AgateService
+            from src.services.mailpit import MailpitService
+            from src.services.mica import MicaService
+            from src.services.elasticsearch import ElasticsearchService
 
-        # One DatabaseService per database
-        for db in self.config.databases:
-            candidates.append(DatabaseService(db))
+            candidates.extend([
+                MongoService(),
+                OpalService(),
+                AgateService(),
+                MailpitService(),
+                MicaService(),
+                ElasticsearchService(),
+            ])
+            for profile in self.config.profiles:
+                candidates.append(RockService(profile))
+            for db in self.config.databases:
+                candidates.append(DatabaseService(db))
+
+        elif self.config.flavor == "armadillo":
+            from src.services.armadillo import ArmadilloService
+            from src.services.armadillo_rock import ArmadilloRockService
+            from src.services.keycloak import KeycloakService
+
+            candidates.extend([
+                ArmadilloService(),
+                KeycloakService(),
+            ])
+            for profile in self.config.profiles:
+                candidates.append(ArmadilloRockService(profile))
 
         self._modules = [m for m in candidates if m.is_enabled(self.config)]
 

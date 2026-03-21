@@ -40,7 +40,10 @@ def _build_https_config(config: OpalConfig, ctx: InstanceContext) -> str:
         key = "/etc/nginx/certs/opal.key"
 
     # Build location blocks for all enabled services
-    locations = _location_block("/", "opal", 8080)
+    if config.flavor == "armadillo":
+        locations = _location_block("/", "armadillo", 8080)
+    else:
+        locations = _location_block("/", "opal", 8080)
 
     if config.agate.enabled:
         locations += _location_block("/agate/", "agate", 8444)

@@ -15,13 +15,17 @@ from src.utils.network import is_port_in_use, find_free_port, get_local_ip, vali
 
 
 def _collect_general(config: OpalConfig) -> OpalConfig:
-    """Step 1: Stack name and service versions."""
+    """Step 1: Flavor, stack name, and service versions."""
     info("1. General Configuration")
+    config.flavor = Prompt.ask("Deployment type", choices=["opal", "armadillo"], default=config.flavor)
     config.stack_name = Prompt.ask("Stack name", default=config.stack_name)
 
     dim("All services default to 'latest'. Press Enter to accept.")
-    config.opal_version = Prompt.ask("  Opal version", default=config.opal_version)
-    config.mongo_version = Prompt.ask("  MongoDB version", default=config.mongo_version)
+    if config.flavor == "opal":
+        config.opal_version = Prompt.ask("  Opal version", default=config.opal_version)
+        config.mongo_version = Prompt.ask("  MongoDB version", default=config.mongo_version)
+    else:
+        config.armadillo.version = Prompt.ask("  Armadillo version", default=config.armadillo.version)
     return config
 
 
@@ -131,18 +135,24 @@ def _collect_watchtower(config: OpalConfig) -> OpalConfig:
 
 
 def _collect_optional_services(config: OpalConfig) -> OpalConfig:
-    """Step 5: Optional services (Agate, Mica)."""
+    """Step 5: Optional services."""
     info("\n5. Optional Services")
 
-    if Confirm.ask("Enable Agate (authentication server)?", default=False):
-        config.agate.enabled = True
-        config.agate.version = Prompt.ask("  Agate version", default=config.agate.version)
-        mail = Prompt.ask("  Email mode", choices=["mailpit", "smtp", "none"], default="mailpit")
-        config.agate.mail_mode = mail
+    if config.flavor == "opal":
+        if Confirm.ask("Enable Agate (authentication server)?", default=False):
+            config.agate.enabled = True
+            config.agate.version = Prompt.ask("  Agate version", default=config.agate.version)
+            mail = Prompt.ask("  Email mode", choices=["mailpit", "smtp", "none"], default="mailpit")
+            config.agate.mail_mode = mail
 
-        if Confirm.ask("  Enable Mica (data portal)? Requires Agate + Elasticsearch", default=False):
-            config.mica.enabled = True
-            config.mica.version = Prompt.ask("  Mica version", default=config.mica.version)
+            if Confirm.ask("  Enable Mica (data portal)? Requires Agate + Elasticsearch", default=False):
+                config.mica.enabled = True
+                config.mica.version = Prompt.ask("  Mica version", default=config.mica.version)
+
+    elif config.flavor == "armadillo":
+        if Confirm.ask("Enable Keycloak (OIDC authentication)?", default=False):
+            config.keycloak.enabled = True
+            config.armadillo.auth_mode = "oidc"
 
     return config
 
@@ -164,14 +174,15 @@ def _collect_optional_services(config: OpalConfig) -> OpalConfig:
 @click.option("--watchtower-interval", type=int, help="Watchtower interval in hours.")
 @click.option("--with-agate", is_flag=True, default=False, help="Enable Agate authentication.")
 @click.option("--with-mica", is_flag=True, default=False, help="Enable Mica data portal (implies Agate).")
-@click.option("--preset", help="Apply a preset (opal-dev, opal-prod, opal-proxy, opal-agate, obiba-full).")
+@click.option("--flavor", type=click.Choice(["opal", "armadillo"]), help="Deployment type.")
+@click.option("--preset", help="Apply a preset.")
 @click.option("--password", help="Opal admin password (generated if not set).")
 @click.option("--yes", is_flag=True, help="Non-interactive mode.")
 @click.pass_context
 def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
           ssl_cert, ssl_key, opal_version, mongo_version, databases,
-          enable_watchtower, watchtower_interval, with_agate, with_mica, preset,
-          password, yes):
+          enable_watchtower, watchtower_interval, with_agate, with_mica, flavor,
+          preset, password, yes):
     """Configure a new easy-opal deployment."""
     instance: InstanceContext = ctx.obj["instance"]
 
@@ -195,11 +206,14 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
         info("Welcome to the easy-opal setup wizard!\n")
         config = _collect_general(config)
         config = _collect_ssl(config)
-        config = _collect_databases(config)
+        if config.flavor == "opal":
+            config = _collect_databases(config)
         config = _collect_watchtower(config)
         config = _collect_optional_services(config)
     else:
         # Non-interactive: apply CLI flags
+        if flavor:
+            config.flavor = flavor
         if stack_name:
             config.stack_name = stack_name
         if hosts:

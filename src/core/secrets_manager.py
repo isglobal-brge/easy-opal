@@ -47,10 +47,23 @@ def ensure_secrets(ctx: InstanceContext, config: OpalConfig) -> dict[str, str]:
     secrets = load_secrets(ctx)
     changed = False
 
-    # Core secrets
-    for key in CORE_SECRETS:
-        if key not in secrets:
-            secrets[key] = generate_password()
+    # Core secrets (Opal flavor)
+    if config.flavor == "opal":
+        for key in CORE_SECRETS:
+            if key not in secrets:
+                secrets[key] = generate_password()
+                changed = True
+
+    # Armadillo secrets
+    if config.flavor == "armadillo":
+        if "ARMADILLO_ADMIN_PASSWORD" not in secrets:
+            secrets["ARMADILLO_ADMIN_PASSWORD"] = generate_password()
+            changed = True
+
+    # Keycloak secret
+    if config.keycloak.enabled:
+        if "KEYCLOAK_ADMIN_PASSWORD" not in secrets:
+            secrets["KEYCLOAK_ADMIN_PASSWORD"] = generate_password()
             changed = True
 
     # Agate secrets
