@@ -230,6 +230,40 @@ easy-opal backup list
 easy-opal backup restore backup.tar.gz
 ```
 
+**What's included in a backup:**
+- MongoDB dump (native mongodump archive)
+- Opal server data (`/srv` directory)
+- PostgreSQL/MySQL/MariaDB dumps (if configured)
+- Configuration file (`config.json`)
+- Manifest with metadata (stack name, Opal version, timestamp)
+
+**What's NOT included (by design):**
+- Passwords and secrets (`secrets.env`) — never shipped in backups
+- SSL certificates — regenerated on the target machine
+- Docker Compose file — regenerated from config
+
+**Transferring to another machine:**
+
+```bash
+# On source machine
+easy-opal backup create -o /tmp/my-backup.tar.gz
+
+# Copy to target
+scp /tmp/my-backup.tar.gz user@target:/tmp/
+
+# On target machine (with easy-opal installed)
+easy-opal setup --yes                              # Create instance first
+easy-opal backup restore /tmp/my-backup.tar.gz     # Restore data
+easy-opal restart                                  # Apply
+```
+
+For scheduled backups, use cron:
+
+```bash
+# Daily backup at 2 AM
+0 2 * * * easy-opal -i prod backup create -o /backups/opal-$(date +\%Y\%m\%d).tar.gz
+```
+
 ## Health and diagnostics
 
 ```bash
