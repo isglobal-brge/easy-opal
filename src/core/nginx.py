@@ -84,6 +84,9 @@ http {{
         listen 443 ssl;
         server_name {server_names};
 
+        # Redirect plain HTTP requests sent to the HTTPS port
+        error_page 497 =301 https://$host:{config.opal_external_port}$request_uri;
+
         ssl_certificate {cert};
         ssl_certificate_key {key};
         ssl_session_cache shared:SSL:10m;
