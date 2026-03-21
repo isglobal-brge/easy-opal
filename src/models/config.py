@@ -63,6 +63,12 @@ class KeycloakConfig(BaseModel):
     port: int = 8080
 
 
+class BackupConfig(BaseModel):
+    enabled: bool = False
+    interval_hours: int = 24
+    keep: int = 7
+
+
 class ArmadilloConfig(BaseModel):
     version: str = "latest"
     port: int = 8080
@@ -87,5 +93,6 @@ class OpalConfig(BaseModel):
     watchtower: WatchtowerConfig = Field(default_factory=WatchtowerConfig)
     agate: AgateConfig = Field(default_factory=AgateConfig)
     mica: MicaConfig = Field(default_factory=MicaConfig)
+    backup: BackupConfig = Field(default_factory=BackupConfig)
     armadillo: ArmadilloConfig = Field(default_factory=ArmadilloConfig)
     keycloak: KeycloakConfig = Field(default_factory=KeycloakConfig)

@@ -212,6 +212,26 @@ easy-opal config mica disable
 
 For development, Agate uses [Mailpit](https://mailpit.axllent.org/) by default — a local mail server that captures all emails without sending them. Access its web UI at `http://localhost:8025`. For production, configure a real SMTP server.
 
+## Armadillo
+
+Armadillo is a lightweight DataSHIELD server, an alternative to Opal. It stores data as Parquet files (no database needed) and optionally uses Keycloak for OIDC authentication.
+
+```bash
+# Interactive
+easy-opal setup    # Choose "armadillo" as deployment type
+
+# Non-interactive
+easy-opal setup --flavor armadillo --stack-name my-armadillo --host localhost --yes
+
+# With preset
+easy-opal setup --preset armadillo-prod --host armadillo.example.com --yes
+
+# Enable Keycloak authentication
+easy-opal config keycloak enable
+```
+
+Armadillo uses the same Rock R server containers as Opal, so profile management works the same way.
+
 ## Backup and restore
 
 Backups use native database tools inside the containers (mongodump, pg_dump, mysqldump) for consistency. Each backup is a `.tar.gz` archive with a manifest describing its contents.
@@ -257,12 +277,20 @@ easy-opal backup restore /tmp/my-backup.tar.gz     # Restore data
 easy-opal restart                                  # Apply
 ```
 
-For scheduled backups, use cron:
+**Automated backups:** A backup container runs alongside your stack, creating backups automatically via Docker socket. It does the same as `easy-opal backup create` but on a schedule.
 
 ```bash
-# Daily backup at 2 AM
-0 2 * * * easy-opal -i prod backup create -o /backups/opal-$(date +\%Y\%m\%d).tar.gz
+# Enable automated backups
+easy-opal config backup enable --every 24 --keep 7
+
+# Check status
+easy-opal config backup status
+
+# Disable
+easy-opal config backup disable
 ```
+
+The backup container is smart about restarts — it checks the timestamp of the last backup on startup and only runs immediately if one is overdue.
 
 ## Health and diagnostics
 
@@ -295,6 +323,8 @@ Presets are named configuration templates for common deployment patterns. They s
 | `opal-proxy` | No SSL — for deployments behind an external reverse proxy |
 | `opal-agate` | Opal + Agate authentication + Mailpit |
 | `obiba-full` | Opal + Agate + Mica + Elasticsearch — the full OBiBa stack |
+| `armadillo-dev` | Armadillo DataSHIELD server for development |
+| `armadillo-prod` | Armadillo + Keycloak OIDC + Watchtower for production |
 
 ```bash
 easy-opal setup --preset opal-prod --host opal.example.com --yes
@@ -352,7 +382,8 @@ This auto-detects how easy-opal was installed and uses the appropriate update me
 | `--opal-version TEXT` | Opal Docker image tag (default: `latest`) |
 | `--mongo-version TEXT` | MongoDB Docker image tag (default: `latest`) |
 | `--database TEXT` | `type:name:port:user[:version]` (repeatable) |
-| `--preset` | `opal-dev`, `opal-prod`, `opal-proxy`, `opal-agate`, `obiba-full` |
+| `--flavor` | `opal` or `armadillo` |
+| `--preset` | `opal-dev`, `opal-prod`, `opal-proxy`, `opal-agate`, `obiba-full`, `armadillo-dev`, `armadillo-prod` |
 | `--watchtower` | Enable automatic container updates |
 | `--watchtower-interval INT` | Update check interval in hours (default: 24) |
 | `--with-agate` | Enable Agate authentication server |
