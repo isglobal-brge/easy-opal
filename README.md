@@ -324,3 +324,16 @@ This auto-detects how easy-opal was installed and uses the appropriate update me
 | `--with-agate` | Enable Agate authentication server |
 | `--with-mica` | Enable Mica data portal (implies Agate) |
 | `--yes` | Skip all interactive prompts |
+
+## Source code
+
+easy-opal is open source under the MIT license. The codebase is modular: each service (Opal, MongoDB, NGINX, Rock, Agate, Mica, etc.) is a self-contained module. Contributions, issues, and feature requests are welcome.
+
+**GitHub:** [https://github.com/isglobal-brge/easy-opal](https://github.com/isglobal-brge/easy-opal)
+
+## Authors
+
+- [David Sarrat Gonzalez](https://davidsarratgonzalez.github.io)
+- Juan R Gonzalez
+
+[Bioinformatic Research Group in Epidemiology (BRGE)](https://brge.isglobal.org), [Barcelona Institute for Global Health (ISGlobal)](https://www.isglobal.org)
