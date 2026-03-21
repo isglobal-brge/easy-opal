@@ -16,7 +16,7 @@ class ArmadilloRockService:
         self, config: OpalConfig, ctx: InstanceContext, secrets: dict[str, str]
     ) -> dict:
         p = self.profile
-        port = 6311 if "rock-base" in p.image else 8085
+        port = 8085  # All Rock images use port 8085
         volume_name = f"{config.stack_name}-{p.name}-data"
 
         return {

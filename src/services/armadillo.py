@@ -23,10 +23,9 @@ class ArmadilloService:
             "ARMADILLO_CONTAINER_PREFIX": config.stack_name,
         }
 
-        # R server URLs (all profiles)
-        for i, p in enumerate(config.profiles):
-            port = 6311 if "rock-base" in p.image else 8085
-            env[f"SPRING_RSERVER_URL"] = f"http://{p.name}:{port}"
+        # R server URL (Rock always uses port 8085)
+        if config.profiles:
+            env["SPRING_RSERVER_URL"] = f"http://{config.profiles[0].name}:8085"
 
         volumes = [
             f"{config.stack_name}-armadillo-data:/data",

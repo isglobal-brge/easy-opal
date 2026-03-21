@@ -73,8 +73,11 @@ def show_version(ctx):
     table.add_column("Service", style="cyan")
     table.add_column("Version", style="bold")
 
-    table.add_row("Opal", cfg.opal_version)
-    table.add_row("MongoDB", cfg.mongo_version)
+    if cfg.flavor == "opal":
+        table.add_row("Opal", cfg.opal_version)
+        table.add_row("MongoDB", cfg.mongo_version)
+    else:
+        table.add_row("Armadillo", cfg.armadillo.version)
     table.add_row("NGINX", cfg.nginx_version)
     for p in cfg.profiles:
         table.add_row(f"Rock ({p.name})", f"{p.image}:{p.tag}")
@@ -96,7 +99,15 @@ def change_version(ctx, version, service, pull):
 
     service_keys = {"opal": "opal_version", "mongo": "mongo_version", "nginx": "nginx_version"}
 
-    if service in service_keys:
+    # Auto-detect: if user says "opal" but flavor is armadillo, map to armadillo
+    if service == "opal" and cfg.flavor == "armadillo":
+        service = "armadillo"
+
+    if service == "armadillo":
+        current = cfg.armadillo.version
+        new = version or Prompt.ask("New Armadillo version", default=current)
+        cfg.armadillo.version = new
+    elif service in service_keys:
         current = getattr(cfg, service_keys[service])
         new = version or Prompt.ask(f"New {service} version", default=current)
         setattr(cfg, service_keys[service], new)
