@@ -134,6 +134,23 @@ def _collect_watchtower(config: OpalConfig) -> OpalConfig:
     return config
 
 
+def _collect_backup(config: OpalConfig) -> OpalConfig:
+    """Automated backups."""
+    info("\nAutomated Backups")
+    dim("A backup container runs alongside your stack, creating periodic backups automatically.")
+
+    if Confirm.ask("Enable automated backups?", default=False):
+        config.backup.enabled = True
+        config.backup.interval_hours = IntPrompt.ask(
+            "  Backup every (hours)", default=config.backup.interval_hours
+        )
+        config.backup.keep = IntPrompt.ask(
+            "  Keep how many backups?", default=config.backup.keep
+        )
+
+    return config
+
+
 def _collect_optional_services(config: OpalConfig) -> OpalConfig:
     """Step 5: Optional services."""
     info("\n5. Optional Services")
@@ -209,6 +226,7 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
         if config.flavor == "opal":
             config = _collect_databases(config)
         config = _collect_watchtower(config)
+        config = _collect_backup(config)
         config = _collect_optional_services(config)
     else:
         # Non-interactive: apply CLI flags
