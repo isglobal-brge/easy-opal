@@ -35,12 +35,16 @@ src/
     mailpit.py               # Mailpit dev mail (opt-in, with Agate)
     mica.py                  # Mica data portal (opt-in)
     elasticsearch.py         # Elasticsearch (opt-in, with Mica)
+    armadillo.py             # Armadillo DataSHIELD server (flavor)
+    armadillo_rock.py        # Rock for Armadillo (no Opal deps)
+    keycloak.py              # Keycloak OIDC (opt-in, with Armadillo)
+    backup.py                # Automated backup service (docker:cli + cron)
   presets/
     __init__.py              # Named config templates (opal-dev, opal-prod, etc.)
   commands/
     setup.py                 # Interactive/non-interactive setup wizard
     lifecycle.py             # up, down, restart, status, reset, plan, validate
-    config.py                # change-*, show-*, watchtower, agate, mica, remove-database
+    config.py                # change-*, show-*, watchtower, agate, mica, backup, remove-database
     certs.py                 # regenerate, info, ca-regenerate
     profiles.py              # add, remove, list
     instances.py             # create, list, info, remove
@@ -103,7 +107,9 @@ class ServiceModule(Protocol):
 
 `ServiceRegistry` collects all enabled modules, merges their compose fragments, and aggregates Opal environment variables. Adding a new service = one file.
 
-Services: mongo, opal, nginx, certbot, rock (per profile), database (per db), watchtower, agate, mailpit, mica, elasticsearch.
+**Opal flavor:** mongo, opal, nginx, certbot, rock (per profile), database (per db), watchtower, agate, mailpit, mica, elasticsearch, backup.
+
+**Armadillo flavor:** armadillo, armadillo-rock (per profile), nginx, certbot, keycloak, watchtower, backup.
 
 ## Config Changes -> Regeneration
 
@@ -119,10 +125,21 @@ Services: mongo, opal, nginx, certbot, rock (per profile), database (per db), wa
 | Agate enable/disable | Agate config + NGINX + Compose |
 | Agate mail mode | Agate config + Compose |
 | Mica enable/disable | Compose |
+| Backup enable/disable | Compose (adds/removes backup container) |
+| Flavor change | Everything (different service set) |
 
 ## Volume Naming
 
 All named volumes: `{stack_name}-{service}-data`. No collisions between instances.
+
+## Flavors
+
+Two deployment modes sharing the same architecture:
+
+- **opal** (default): MongoDB + Opal + NGINX + Rock + optional Agate/Mica/databases
+- **armadillo**: Armadillo (Parquet storage, no DB) + Rock + optional Keycloak
+
+Both flavors share: NGINX, Certbot, Watchtower, backup service, Rock profiles.
 
 ## Container Runtime
 

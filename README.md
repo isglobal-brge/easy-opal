@@ -280,11 +280,17 @@ easy-opal restart                                  # Apply
 **Automated backups:** A backup container runs alongside your stack, creating backups automatically via Docker socket. It does the same as `easy-opal backup create` but on a schedule.
 
 ```bash
-# Enable automated backups
+# Enable automated backups (every 24h, keep last 7)
 easy-opal config backup enable --every 24 --keep 7
+
+# Keep unlimited backups (use with caution)
+easy-opal config backup enable --every 24 --keep 0
 
 # Check status
 easy-opal config backup status
+
+# Change settings
+easy-opal config backup --every 12 --keep 14
 
 # Disable
 easy-opal config backup disable
