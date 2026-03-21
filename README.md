@@ -333,7 +333,7 @@ easy-opal is open source under the MIT license. The codebase is modular: each se
 
 ## Authors
 
-- [David Sarrat Gonzalez](https://davidsarratgonzalez.github.io)
-- Juan R Gonzalez
+- [David Sarrat González](https://davidsarratgonzalez.github.io)
+- Juan R González
 
 [Bioinformatic Research Group in Epidemiology (BRGE)](https://brge.isglobal.org), [Barcelona Institute for Global Health (ISGlobal)](https://www.isglobal.org)
