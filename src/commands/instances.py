@@ -143,16 +143,22 @@ def create(name: str, path: str | None):
 @click.option("--delete-data", is_flag=True, help="Also delete all data and volumes.")
 @click.option("--yes", is_flag=True, help="Skip confirmation.")
 def remove(name: str, delete_data: bool, yes: bool):
-    """Remove an instance."""
+    """Remove an instance (stops containers, optionally deletes volumes)."""
     if not yes:
-        action = "delete all data for" if delete_data else "remove config for"
+        if delete_data:
+            action = "stop containers, delete all data and Docker volumes for"
+        else:
+            action = "stop containers and remove config for"
         if not click.confirm(f"Are you sure you want to {action} instance '{name}'?"):
             console.print("Aborted.")
             return
 
     try:
         instance_manager.remove_instance(name, delete_data=delete_data)
-        success(f"Instance '{name}' removed.")
+        msg = f"Instance '{name}' removed."
+        if not delete_data:
+            msg += " Docker volumes were preserved. Use --delete-data to also remove them."
+        success(msg)
     except ValueError as e:
         error(str(e))
 

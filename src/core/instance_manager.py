@@ -210,13 +210,26 @@ def create_instance(name: str, path: Path | None = None) -> InstanceContext:
 
 
 def remove_instance(name: str, delete_data: bool = False) -> None:
-    """Remove an instance from registry and optionally delete data."""
+    """Remove an instance: stop containers, optionally delete volumes and data."""
+    import subprocess
+
     registry = sync_registry()
     meta = registry.get("instances", {}).get(name)
     if not meta:
         raise ValueError(f"Instance '{name}' not found")
 
     root = Path(meta["path"])
+    compose_file = root / "docker-compose.yml"
+    stack_name = meta.get("stack_name")
+
+    # Stop containers (and remove volumes if delete_data)
+    if compose_file.exists() and stack_name:
+        down_args = ["docker", "compose", "--project-name", stack_name,
+                     "-f", str(compose_file), "down"]
+        if delete_data:
+            down_args.append("-v")
+        subprocess.run(down_args, capture_output=True, check=False, timeout=60)
+
     if delete_data and root.exists():
         shutil.rmtree(root)
     elif root.exists():
@@ -265,6 +278,15 @@ def resolve_instance(name: str | None) -> InstanceContext:
         raise ValueError(
             f"Multiple instances found ({names}). Specify one with: easy-opal -i <name>"
         )
+
+
+def is_stack_name_taken(stack_name: str, exclude_instance: str | None = None) -> str | None:
+    """Returns the instance name using this stack_name, or None if available."""
+    registry = _load_registry()
+    for inst_name, meta in registry.get("instances", {}).items():
+        if inst_name != exclude_instance and meta.get("stack_name") == stack_name:
+            return inst_name
+    return None
 
 
 def update_stack_name(name: str, stack_name: str) -> None:

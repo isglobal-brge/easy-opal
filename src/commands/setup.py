@@ -223,6 +223,10 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
 
     is_interactive = not yes
 
+    # Default stack name to instance name
+    if config.stack_name == "easy-opal":
+        config.stack_name = instance.name
+
     if is_interactive:
         info("Welcome to the easy-opal setup wizard!\n")
         config = _collect_general(config)
@@ -279,11 +283,17 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
             )
 
     # Validate stack name
-    from src.core.instance_manager import validate_name, update_stack_name
+    from src.core.instance_manager import validate_name, update_stack_name, is_stack_name_taken
     err = validate_name(config.stack_name)
     if err:
         error(f"Invalid stack name: {err}")
         return
+
+    taken_by = is_stack_name_taken(config.stack_name, exclude_instance=instance.name)
+    if taken_by:
+        error(f"Stack name '{config.stack_name}' is already used by instance '{taken_by}'. Choose a different name.")
+        return
+
     update_stack_name(instance.name, config.stack_name)
 
     # Save config and generate secrets
