@@ -86,7 +86,9 @@ def run_compose(
 
 
 def compose_up(ctx: InstanceContext, config: OpalConfig, wait: bool = True) -> bool:
-    """Convergent up: regenerate compose, run up -d, optionally wait for health."""
+    """Convergent up: regenerate compose + nginx, run up -d, optionally wait for health."""
+    from src.core.nginx import generate_nginx_config
+    generate_nginx_config(config, ctx)
     generate_compose(config, ctx)
     args = ["up", "-d", "--remove-orphans"]
     if wait:
