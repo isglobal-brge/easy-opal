@@ -12,7 +12,7 @@ That's it. Python, dependencies, and SSL certificates are handled automatically.
 ## Install
 
 ```bash
-curl -sSf https://raw.githubusercontent.com/isglobal-brge/easy-opal/main/install.sh | sh
+curl -sSf https://easy-opal.github.io/install | sh
 ```
 
 This installs [uv](https://docs.astral.sh/uv/) (if needed) and easy-opal globally. Then:
