@@ -480,3 +480,55 @@ def mica(ctx, action):
         cfg.mica.enabled = False
         _apply_config(cfg, instance)
         success("Mica disabled.")
+
+
+@config.command(name="backup")
+@click.argument("action", type=click.Choice(["enable", "disable", "status"]), required=False)
+@click.option("--every", type=int, help="Backup interval in hours.")
+@click.option("--keep", type=int, help="Number of backups to retain.")
+@click.pass_context
+def backup_config(ctx, action, every, keep):
+    """Manage automated backups."""
+    instance: InstanceContext = ctx.obj["instance"]
+    cfg = load_config(instance)
+
+    if not action and every is None and keep is None:
+        action = "status"
+
+    if action == "status":
+        status_str = "[green]enabled[/green]" if cfg.backup.enabled else "[red]disabled[/red]"
+        console.print(f"Automated backup: {status_str}")
+        if cfg.backup.enabled:
+            console.print(f"  Interval: every {cfg.backup.interval_hours}h")
+            console.print(f"  Retain:   {cfg.backup.keep} backups")
+
+        # Show existing backups
+        backups = sorted(instance.root.glob("backups/*.tar.gz"), reverse=True)
+        if backups:
+            console.print(f"  Backups:  {len(backups)} on disk")
+            console.print(f"  Latest:   {backups[0].name}")
+        return
+
+    changed = False
+
+    if action == "enable" and not cfg.backup.enabled:
+        cfg.backup.enabled = True
+        changed = True
+        success("Automated backup enabled.")
+    elif action == "disable" and cfg.backup.enabled:
+        cfg.backup.enabled = False
+        changed = True
+        success("Automated backup disabled.")
+
+    if every is not None:
+        cfg.backup.interval_hours = every
+        changed = True
+        success(f"Backup interval set to {every}h.")
+
+    if keep is not None:
+        cfg.backup.keep = keep
+        changed = True
+        success(f"Retaining {keep} backups.")
+
+    if changed:
+        _apply_config(cfg, instance)

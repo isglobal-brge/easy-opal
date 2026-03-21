@@ -41,12 +41,14 @@ class ServiceRegistry:
         from src.services.nginx import NginxService
         from src.services.certbot import CertbotService
         from src.services.watchtower import WatchtowerService
+        from src.services.backup import BackupService
 
         # Common services (both flavors)
         candidates: list[ServiceModule] = [
             NginxService(),
             CertbotService(),
             WatchtowerService(),
+            BackupService(),
         ]
 
         if self.config.flavor == "opal":
