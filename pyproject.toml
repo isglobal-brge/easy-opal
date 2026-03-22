@@ -1,13 +1,33 @@
 [project]
 name = "easy-opal"
-version = "0.1.0"
-description = "A command-line tool to easily set up and manage OBiBa Opal environments using Docker and NGINX."
+version = "2.0.0"
+description = "Deploy and manage OBiBa Opal and Armadillo DataSHIELD environments with Docker."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
 authors = [
     {name = "David Sarrat González", email = "david.sarrat@isglobal.org"},
     {name = "Xavier Escribà Montagut", email = "xavier.escriba@isglobal.org"},
     {name = "Juan R González", email = "juanr.gonzalez@isglobal.org"}
+]
+keywords = [
+    "opal", "obiba", "datashield", "armadillo", "docker",
+    "epidemiology", "bioinformatics", "r-server", "rock",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Healthcare Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: System :: Systems Administration",
 ]
 dependencies = [
     "click>=8.1.7",
@@ -17,6 +37,12 @@ dependencies = [
     "cryptography>=42.0.0",
     "pydantic>=2.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/isglobal-brge/easy-opal"
+Documentation = "https://easy-opal.github.io"
+Repository = "https://github.com/isglobal-brge/easy-opal"
+Issues = "https://github.com/isglobal-brge/easy-opal/issues"
 
 [project.scripts]
 easy-opal = "src.cli:main"
@@ -30,4 +56,3 @@ testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
-# Templates (maintenance.html) are auto-included since they're inside src/
