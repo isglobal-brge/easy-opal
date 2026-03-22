@@ -5,19 +5,23 @@ A command-line tool to deploy and manage [OBiBa Opal](https://www.obiba.org/page
 ## Requirements
 
 - **Docker** with Compose V2 (or Podman with Compose)
-- **curl** (for first-time install only)
 
 That's it. Python, all dependencies, and SSL certificates are handled automatically by easy-opal. You don't need to install anything else.
 
 ## Installation
 
-Open a terminal and run:
-
 ```bash
-curl -sSf https://easy-opal.github.io | sh
+# With uv (recommended)
+uv tool install easy-opal
+
+# With pipx
+pipx install easy-opal
+
+# With pip
+pip install easy-opal
 ```
 
-This installs [uv](https://docs.astral.sh/uv/) (a fast Python package manager) if you don't have it, then installs easy-opal globally. After installation, the `easy-opal` command is available from anywhere in your terminal.
+After installation, the `easy-opal` command is available from anywhere in your terminal.
 
 ## Your first deployment
 
