@@ -69,6 +69,11 @@ class BackupConfig(BaseModel):
     keep: int = 7
 
 
+class ProfileUpdaterConfig(BaseModel):
+    enabled: bool = False
+    interval_hours: int = 24
+
+
 class ArmadilloConfig(BaseModel):
     version: str = "latest"
     port: int = 8080
@@ -94,5 +99,6 @@ class OpalConfig(BaseModel):
     agate: AgateConfig = Field(default_factory=AgateConfig)
     mica: MicaConfig = Field(default_factory=MicaConfig)
     backup: BackupConfig = Field(default_factory=BackupConfig)
+    profile_updater: ProfileUpdaterConfig = Field(default_factory=ProfileUpdaterConfig)
     armadillo: ArmadilloConfig = Field(default_factory=ArmadilloConfig)
     keycloak: KeycloakConfig = Field(default_factory=KeycloakConfig)

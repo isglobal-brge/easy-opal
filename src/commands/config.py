@@ -505,6 +505,50 @@ def mica(ctx, action):
         success("Mica disabled.")
 
 
+@config.command(name="profile-updates")
+@click.argument("action", type=click.Choice(["enable", "disable", "status"]), required=False)
+@click.option("--every", type=int, help="Pre-pull interval in hours.")
+@click.pass_context
+def profile_updates_config(ctx, action, every):
+    """Manage scheduled pre-pulling of profile images (applied on next restart)."""
+    instance: InstanceContext = ctx.obj["instance"]
+    cfg = load_config(instance)
+
+    if not action and every is None:
+        action = "status"
+
+    if action == "status":
+        pu = cfg.profile_updater
+        status_str = "[green]enabled[/green]" if pu.enabled else "[red]disabled[/red]"
+        console.print(f"Profile updates: {status_str}")
+        if pu.enabled:
+            console.print(f"  Interval: every {pu.interval_hours}h")
+            console.print(f"  Profiles: {', '.join(p.name for p in cfg.profiles)}")
+            console.print("  [dim]New images are pre-pulled in the background.[/dim]")
+            console.print("  [dim]Run 'easy-opal restart' to apply.[/dim]")
+        return
+
+    changed = False
+
+    if action == "enable" and not cfg.profile_updater.enabled:
+        cfg.profile_updater.enabled = True
+        changed = True
+        success("Profile updates enabled.")
+        info("Images will be pre-pulled in the background. Run 'easy-opal restart' to apply.")
+    elif action == "disable" and cfg.profile_updater.enabled:
+        cfg.profile_updater.enabled = False
+        changed = True
+        success("Profile updates disabled.")
+
+    if every is not None:
+        cfg.profile_updater.interval_hours = every
+        changed = True
+        success(f"Pre-pull interval set to {every}h.")
+
+    if changed:
+        _apply_config(cfg, instance)
+
+
 @config.command(name="backup")
 @click.argument("action", type=click.Choice(["enable", "disable", "status"]), required=False)
 @click.option("--every", type=int, help="Backup interval in hours.")

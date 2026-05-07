@@ -42,6 +42,7 @@ class ServiceRegistry:
         from src.services.certbot import CertbotService
         from src.services.watchtower import WatchtowerService
         from src.services.backup import BackupService
+        from src.services.profile_updater import ProfileUpdaterService
 
         # Common services (both flavors)
         candidates: list[ServiceModule] = [
@@ -49,6 +50,7 @@ class ServiceRegistry:
             CertbotService(),
             WatchtowerService(),
             BackupService(),
+            ProfileUpdaterService(),
         ]
 
         if self.config.flavor == "opal":
