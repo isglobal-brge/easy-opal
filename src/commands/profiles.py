@@ -207,6 +207,59 @@ def rename(ctx, old_name, new_name):
     info("Run 'easy-opal restart' to apply.")
 
 
+@profile.command()
+@click.argument("names", nargs=-1)
+@click.option("--no-apply", is_flag=True, help="Pull only, skip container recreation.")
+@click.pass_context
+def pull(ctx, names, no_apply):
+    """Pull profile images and recreate their containers.
+
+    Useful when profiles use mutable tags like ':latest' and the upstream
+    image has been updated. Without arguments, pulls all profiles.
+    """
+    from src.core.docker import get_compose_cmd
+
+    def _pull_and_recreate(inst):
+        cfg = load_config(inst)
+        targets = [p for p in cfg.profiles if not names or p.name in names]
+
+        if names:
+            missing = set(names) - {p.name for p in cfg.profiles}
+            for m in missing:
+                warning(f"  [{inst.name}] Profile '{m}' not found, skipping.")
+        if not targets:
+            return
+
+        cmd = get_compose_cmd()
+        if not cmd:
+            return
+
+        for p in targets:
+            full = f"{p.image}:{p.tag}"
+            info(f"  [{inst.name}] Pulling {full}...")
+            if not pull_image(full):
+                error(f"  [{inst.name}] Failed: {full}")
+                continue
+
+            if no_apply:
+                continue
+
+            info(f"  [{inst.name}] Recreating '{p.name}'...")
+            result = subprocess.run(
+                cmd + ["--project-name", cfg.stack_name, "-f", str(inst.compose_path),
+                       "up", "-d", "--force-recreate", "--no-deps", p.name],
+                capture_output=True, text=True, check=False,
+            )
+            if result.returncode == 0:
+                success(f"  [{inst.name}] '{p.name}' refreshed ({p.tag}).")
+            else:
+                error(f"  [{inst.name}] Recreate failed: {result.stderr.strip()}")
+
+    for_each_instance(ctx, _pull_and_recreate)
+    if no_apply:
+        info("Run 'easy-opal restart' to apply.")
+
+
 @profile.command(name="change-version")
 @click.argument("name")
 @click.argument("tag")
