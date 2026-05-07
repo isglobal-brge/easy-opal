@@ -15,10 +15,9 @@ from src.utils.network import is_port_in_use, find_free_port, get_local_ip, vali
 
 
 def _collect_general(config: OpalConfig) -> OpalConfig:
-    """Step 1: Flavor, stack name, and service versions."""
+    """Step 1: Flavor and service versions."""
     info("1. General Configuration")
     config.flavor = Prompt.ask("Deployment type", choices=["opal", "armadillo"], default=config.flavor)
-    config.stack_name = Prompt.ask("Stack name", default=config.stack_name)
 
     dim("All services default to 'latest'. Press Enter to accept.")
     if config.flavor == "opal":
@@ -205,7 +204,8 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
           enable_watchtower, watchtower_interval, with_agate, with_mica, flavor,
           preset, password, yes):
     """Configure a new easy-opal deployment."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext | None = ctx.obj.get("instance")
+    auto_create = ctx.obj.get("auto_create", False)
 
     display_header()
 
@@ -221,15 +221,31 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
         config = apply_preset(config, preset)
         info(f"Preset '{preset}' applied.")
 
+    # Apply flavor from flag early (needed for auto-create)
+    if flavor:
+        config.flavor = flavor
+
     is_interactive = not yes
+
+    if is_interactive:
+        info("Welcome to the easy-opal setup wizard!\n")
+        # Step 1: flavor and versions (before auto-create so we know the flavor)
+        config = _collect_general(config)
+
+    # Auto-create instance if needed (now we know the flavor)
+    if auto_create and instance is None:
+        from src.core.instance_manager import create_instance, next_available_name
+        name = next_available_name(config.flavor)
+        instance = create_instance(name)
+        info(f"Created instance '{name}'.")
 
     # Default stack name to instance name
     if config.stack_name == "easy-opal":
         config.stack_name = instance.name
 
     if is_interactive:
-        info("Welcome to the easy-opal setup wizard!\n")
-        config = _collect_general(config)
+        # Update stack name default now that we have the instance name
+        config.stack_name = Prompt.ask("Stack name", default=config.stack_name)
         config = _collect_ssl(config)
         if config.flavor == "opal":
             config = _collect_databases(config)
@@ -238,8 +254,6 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
         config = _collect_optional_services(config)
     else:
         # Non-interactive: apply CLI flags
-        if flavor:
-            config.flavor = flavor
         if stack_name:
             config.stack_name = stack_name
         if hosts:

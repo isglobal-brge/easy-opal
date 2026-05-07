@@ -52,15 +52,17 @@ def main(ctx, instance_name, all_instances):
         ctx.obj["instance"] = ctx.obj["instances"][0]
         return
 
+    # Setup without -i always creates a new instance
+    if ctx.invoked_subcommand == "setup" and not instance_name:
+        ctx.obj["instance"] = None
+        ctx.obj["auto_create"] = True
+        return
+
     try:
         ctx.obj["instance"] = resolve_instance(instance_name)
     except ValueError as e:
-        if ctx.invoked_subcommand == "setup" and not list_instances():
-            from src.core.instance_manager import create_instance
-            ctx.obj["instance"] = create_instance("default")
-        else:
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(1)
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
 
 # Register commands

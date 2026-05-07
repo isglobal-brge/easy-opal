@@ -280,6 +280,15 @@ def resolve_instance(name: str | None) -> InstanceContext:
         )
 
 
+def next_available_name(prefix: str) -> str:
+    """Find the next available instance name like opal1, opal2, etc."""
+    existing = set(list_instances())
+    i = 1
+    while f"{prefix}{i}" in existing:
+        i += 1
+    return f"{prefix}{i}"
+
+
 def is_stack_name_taken(stack_name: str, exclude_instance: str | None = None) -> str | None:
     """Returns the instance name using this stack_name, or None if available."""
     registry = _load_registry()
