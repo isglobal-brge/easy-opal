@@ -207,6 +207,64 @@ def rename(ctx, old_name, new_name):
     info("Run 'easy-opal restart' to apply.")
 
 
+@profile.command(name="change-version")
+@click.argument("name")
+@click.argument("tag")
+@click.option("--no-apply", is_flag=True, help="Update config and pull but skip container recreation.")
+@click.pass_context
+def change_version(ctx, name, tag, no_apply):
+    """Change a Rock profile's image tag and recreate its container.
+
+    Pulls the new image (or re-pulls if tag is unchanged, useful for :latest)
+    and force-recreates only the affected container.
+    """
+    from src.core.docker import get_compose_cmd
+
+    def _apply_change(inst):
+        cfg = load_config(inst)
+        pr = next((p for p in cfg.profiles if p.name == name), None)
+        if not pr:
+            warning(f"  [{inst.name}] Profile '{name}' not found, skipping.")
+            return
+
+        full_image = f"{pr.image}:{tag}"
+        info(f"  [{inst.name}] Pulling {full_image}...")
+        if not pull_image(full_image):
+            error(f"  [{inst.name}] Failed to pull {full_image}.")
+            return
+
+        old_tag = pr.tag
+        pr.tag = tag
+        save_config(cfg, inst)
+        generate_compose(cfg, inst)
+        if old_tag == tag:
+            success(f"  [{inst.name}] {name}: re-pulled tag '{tag}'")
+        else:
+            success(f"  [{inst.name}] {name}: {old_tag} -> {tag}")
+
+        if no_apply:
+            return
+
+        cmd = get_compose_cmd()
+        if not cmd:
+            return
+
+        info(f"  [{inst.name}] Recreating container '{name}'...")
+        result = subprocess.run(
+            cmd + ["--project-name", cfg.stack_name, "-f", str(inst.compose_path),
+                   "up", "-d", "--force-recreate", "--no-deps", name],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode == 0:
+            success(f"  [{inst.name}] '{name}' running on tag '{tag}'.")
+        else:
+            error(f"  [{inst.name}] Recreate failed: {result.stderr.strip()}")
+
+    for_each_instance(ctx, _apply_change)
+    if no_apply:
+        info("Run 'easy-opal restart' to apply.")
+
+
 @profile.command()
 @click.argument("source_name")
 @click.argument("new_name")
