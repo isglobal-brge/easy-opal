@@ -355,7 +355,30 @@ easy-opal profile add --image datashield/rock-omics --tag 2.0 --name rock-omics
 
 # Remove a profile
 easy-opal profile remove rock-omics --yes
+
+# Change a profile's image tag (pulls new image and recreates container)
+easy-opal profile change-version rock 6.3.4
+
+# Refresh mutable tags like :latest (pull + recreate, no easy-opal restart needed)
+easy-opal profile pull            # all profiles
+easy-opal profile pull rock       # just one
+easy-opal profile pull --no-apply # pull only, apply later with restart
 ```
+
+### Scheduled background pre-pulling
+
+If profiles use `:latest` and you want them refreshed automatically without
+restarting your stack on every upstream push, enable the profile-updates
+service. It pre-pulls new images on a schedule into the local Docker cache;
+they become active only on your next `easy-opal restart`.
+
+```bash
+easy-opal config profile-updates enable --every 24
+easy-opal config profile-updates status
+easy-opal config profile-updates disable
+```
+
+This is different from `watchtower`, which pulls **and** restarts immediately.
 
 ## Volumes
 
