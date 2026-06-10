@@ -7,7 +7,7 @@ from src.models.enums import SSLStrategy
 from src.core.config_manager import load_config, config_exists
 from src.core.ssl import generate_server_cert, ensure_ca, get_cert_info
 from src.core.docker import run_compose
-from src.utils.console import console, success, error, info, warning
+from src.utils.console import console, success, error, info, warning, require_single_instance
 
 
 @click.group()
@@ -20,7 +20,7 @@ def cert():
 @click.pass_context
 def regenerate(ctx):
     """Regenerate the server certificate (preserves the CA)."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     if not config_exists(instance):
         error("No configuration found. Run 'easy-opal setup' first.")
         return
@@ -52,7 +52,7 @@ def regenerate(ctx):
 @click.pass_context
 def cert_info(ctx):
     """Show certificate details."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     ci = get_cert_info(instance)
     if not ci:
         warning("No certificate found.")
@@ -70,7 +70,7 @@ def cert_info(ctx):
 @click.pass_context
 def ca_regenerate(ctx, yes):
     """Force regenerate the local CA (breaks existing trust)."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     if not yes:
         if not click.confirm(
             "This will invalidate any browser trust of the current CA. Continue?"

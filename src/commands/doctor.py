@@ -11,7 +11,7 @@ from src.core.instance_manager import get_home, sync_registry, get_registry_info
 from src.core.config_manager import load_config, config_exists
 from src.core.ssl import get_cert_info
 from src.core.secrets_manager import load_secrets
-from src.utils.console import console
+from src.utils.console import console, get_instances
 
 
 class Check:
@@ -152,17 +152,14 @@ def doctor(ctx):
     for c in global_checks:
         console.print(f"  {c.icon}  {c.name}: {c.detail}")
 
-    # Instance checks
-    instance = ctx.obj.get("instance")
-    if instance:
+    # Instance checks (single instance, -i a,b, or --all; none = global only)
+    all_checks = list(global_checks)
+    for instance in get_instances(ctx):
         console.print(f"\n[bold]Instance: {instance.name}[/bold]")
         inst_checks = _check_instance(instance)
         for c in inst_checks:
             console.print(f"  {c.icon}  {c.name}: {c.detail}")
-
-        all_checks = global_checks + inst_checks
-    else:
-        all_checks = global_checks
+        all_checks += inst_checks
 
     # Summary
     fails = sum(1 for c in all_checks if c.status == "fail")

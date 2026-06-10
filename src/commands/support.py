@@ -13,7 +13,7 @@ from src.models.instance import InstanceContext
 from src.core.config_manager import load_config, config_exists
 from src.core.secrets_manager import load_secrets
 from src.core.ssl import get_cert_info
-from src.utils.console import console, success, error, info
+from src.utils.console import console, success, error, info, require_single_instance
 
 
 def _redact(data: dict, keys_to_redact: set[str] | None = None) -> dict:
@@ -37,7 +37,7 @@ def _redact(data: dict, keys_to_redact: set[str] | None = None) -> dict:
 @click.pass_context
 def support_bundle(ctx, output):
     """Generate a support bundle for debugging."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     if not config_exists(instance):
         error("No configuration found.")
         return

@@ -13,7 +13,7 @@ from src.models.instance import InstanceContext
 from src.models.enums import DatabaseType
 from src.core.config_manager import load_config, config_exists
 from src.core.docker import get_compose_cmd
-from src.utils.console import console, success, error, info, dim, warning
+from src.utils.console import console, success, error, info, dim, warning, require_single_instance
 
 
 def _backups_dir(ctx: InstanceContext) -> Path:
@@ -68,7 +68,7 @@ def backup():
 @click.pass_context
 def create(ctx, output):
     """Create a full backup (config + database dumps)."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     if not config_exists(instance):
         error("No configuration found.")
         return
@@ -185,7 +185,7 @@ def create(ctx, output):
 @click.pass_context
 def restore(ctx, backup_file, yes):
     """Restore from a backup file."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     cfg = load_config(instance)
 
     # Extract tar
@@ -284,7 +284,7 @@ def restore(ctx, backup_file, yes):
 @click.pass_context
 def list_backups(ctx):
     """List available backups."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     backups_dir = _backups_dir(instance)
 
     files = sorted(backups_dir.glob("*.tar.gz"), reverse=True)

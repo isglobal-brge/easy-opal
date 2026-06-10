@@ -11,7 +11,7 @@ from src.models.config import ProfileConfig
 from src.models.instance import InstanceContext
 from src.core.config_manager import load_config, save_config, config_exists
 from src.core.docker import generate_compose, pull_image
-from src.utils.console import console, success, error, info, dim, warning, for_each_instance
+from src.utils.console import console, success, error, info, dim, warning, for_each_instance, get_instances
 
 
 def _get_container_status(stack_name: str, profile_name: str) -> str:
@@ -51,7 +51,11 @@ def add(ctx, profiles, image, tag, name, yes):
 
       easy-opal profile add datashield/rock-omics:latest:rock-omics datashield/rock-dolomite-xenon:latest:rock-xenon
     """
-    instance: InstanceContext = ctx.obj["instance"]
+    targets = get_instances(ctx)
+    if not targets:
+        error("No instance targeted. Use -i <name>.")
+        return
+    instance: InstanceContext = targets[0]
     if not config_exists(instance):
         error("No configuration found. Run 'easy-opal setup' first.")
         return
@@ -143,7 +147,11 @@ def add(ctx, profiles, image, tag, name, yes):
 @click.pass_context
 def remove(ctx, names, yes):
     """Remove one or more profiles."""
-    instance: InstanceContext = ctx.obj["instance"]
+    targets = get_instances(ctx)
+    if not targets:
+        error("No instance targeted. Use -i <name>.")
+        return
+    instance: InstanceContext = targets[0]
     config = load_config(instance)
 
     if not config.profiles:
