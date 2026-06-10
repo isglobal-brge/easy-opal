@@ -9,7 +9,7 @@ from src.models.instance import InstanceContext
 from src.models.enums import SSLStrategy
 from src.core.config_manager import load_config, config_exists
 from src.core.ssl import get_cert_info
-from src.utils.console import console, error
+from src.utils.console import console, error, require_single_instance
 
 
 class DiagnosticResult:
@@ -115,7 +115,7 @@ def _check_databases(config) -> list[DiagnosticResult]:
 @click.pass_context
 def diagnose(ctx, quiet):
     """Run health diagnostics on the stack."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     if not config_exists(instance):
         error("No configuration found. Run 'easy-opal setup' first.")
         return

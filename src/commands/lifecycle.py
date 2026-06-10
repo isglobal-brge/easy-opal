@@ -6,7 +6,7 @@ from rich.prompt import Confirm
 from src.models.instance import InstanceContext
 from src.core.config_manager import load_config, config_exists
 from src.core.docker import compose_up, compose_down, compose_restart, compose_status, compose_reset, check_docker
-from src.utils.console import console, success, error, info, for_each_instance
+from src.utils.console import console, success, error, info, for_each_instance, require_single_instance
 
 
 @click.command()
@@ -69,7 +69,7 @@ def status(ctx):
 @click.pass_context
 def plan(ctx):
     """Show what docker-compose.yml would look like without applying."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     if not config_exists(instance):
         error("No configuration found. Run 'easy-opal setup' first.")
         return
@@ -82,7 +82,7 @@ def plan(ctx):
 @click.pass_context
 def validate(ctx):
     """Validate configuration without starting anything."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     if not config_exists(instance):
         error("No configuration found. Run 'easy-opal setup' first.")
         return
@@ -135,7 +135,7 @@ def validate(ctx):
 @click.pass_context
 def reset(ctx, volumes, yes):
     """Stop the stack and optionally delete volumes."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     if not config_exists(instance):
         error("No configuration found.")
         return

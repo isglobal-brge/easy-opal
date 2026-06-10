@@ -6,7 +6,7 @@ import click
 
 from src.models.instance import InstanceContext
 from src.core.config_manager import load_config, config_exists
-from src.utils.console import error
+from src.utils.console import error, require_single_instance
 
 
 @click.command(name="exec", context_settings={"ignore_unknown_options": True})
@@ -24,7 +24,7 @@ def exec_cmd(ctx, service, command):
 
       easy-opal exec rock R
     """
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     if not config_exists(instance):
         error("No configuration found.")
         return

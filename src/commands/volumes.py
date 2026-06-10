@@ -9,7 +9,7 @@ from rich.prompt import Confirm
 
 from src.models.instance import InstanceContext
 from src.core.config_manager import load_config, config_exists
-from src.utils.console import console, success, error, info, dim, warning
+from src.utils.console import console, success, error, info, dim, warning, require_single_instance
 
 
 def _get_project_volumes(stack_name: str) -> list[dict]:
@@ -67,7 +67,7 @@ def volumes():
 @click.pass_context
 def list_volumes(ctx):
     """List Docker volumes for this instance."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     if not config_exists(instance):
         error("No configuration found.")
         return
@@ -97,7 +97,7 @@ def list_volumes(ctx):
 @click.pass_context
 def prune(ctx, yes):
     """Remove unused volumes for this instance."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     if not config_exists(instance):
         error("No configuration found.")
         return

@@ -7,22 +7,82 @@ import click
 from src.core.instance_manager import resolve_instance, list_instances, get_instance
 
 
+# Commands that never operate on a specific instance (manage easy-opal itself).
+GLOBAL_COMMANDS = {"update"}
+# Commands that run global checks and optionally use targeted instance(s).
+HYBRID_COMMANDS = {"doctor"}
+# The instance-management group is registered under these names.
+INSTANCE_GROUP_NAMES = {"instance", "stack"}
+
+
 class EasyOpalGroup(click.Group):
     """Custom group with clean exception handling."""
 
     def invoke(self, ctx):
         try:
             return super().invoke(ctx)
-        except click.exceptions.Exit:
-            raise
-        except click.exceptions.Abort:
+        except (click.exceptions.Exit, click.exceptions.Abort, click.ClickException):
             raise
         except Exception as e:
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
 
 
-@click.group(cls=EasyOpalGroup)
+def _resolve_targets(instance_name, all_instances, allow_none=False):
+    """Return the list of targeted instances for instance-scoped commands.
+
+    Raises ValueError with a helpful message on ambiguity (multiple instances
+    and no target) unless allow_none is set (hybrid commands run global-only).
+    """
+    if all_instances:
+        names = list_instances()
+        if not names:
+            if allow_none:
+                return []
+            raise ValueError("No instances found. Create one with: easy-opal setup")
+        return [get_instance(n) for n in names]
+
+    if instance_name and "," in instance_name:
+        names = [n.strip() for n in instance_name.split(",") if n.strip()]
+        if not names:
+            raise ValueError("No valid instance names provided with -i.")
+        return [get_instance(n) for n in names]
+
+    if instance_name:
+        return [get_instance(instance_name)]
+
+    # No explicit target.
+    if allow_none:
+        names = list_instances()
+        return [get_instance(names[0])] if len(names) == 1 else []
+    return [resolve_instance(None)]
+
+
+def _route_setup(ctx, instance_name, all_instances):
+    """setup creates or targets exactly one instance."""
+    if all_instances:
+        click.echo("Error: setup cannot be combined with --all.", err=True)
+        sys.exit(1)
+    if instance_name and "," in instance_name:
+        click.echo("Error: setup targets a single instance, not a list.", err=True)
+        sys.exit(1)
+
+    ctx.obj["setup_name"] = instance_name
+    if instance_name:
+        try:
+            ctx.obj["instance"] = get_instance(instance_name)
+        except ValueError:
+            # Named instance doesn't exist yet -> create it during setup.
+            ctx.obj["instance"] = None
+    else:
+        ctx.obj["instance"] = None
+
+
+@click.group(
+    cls=EasyOpalGroup,
+    epilog="Manage deployments with 'easy-opal instance' (alias 'stack'): "
+           "list, create, info, remove. Target one with -i <name> or all with --all.",
+)
 @click.option("-i", "--instance", "instance_name", envvar="EASY_OPAL_INSTANCE", default=None,
               help="Target instance (auto-detected if only one exists).")
 @click.option("--all", "all_instances", is_flag=True, help="Apply to all instances.")
@@ -32,37 +92,31 @@ def main(ctx, instance_name, all_instances):
     ctx.ensure_object(dict)
     ctx.obj["all"] = all_instances
 
-    # Instance commands don't need a resolved instance
-    if ctx.invoked_subcommand == "instance":
+    subcommand = ctx.invoked_subcommand
+
+    # Instance/stack management group: operates on instances by name argument.
+    if subcommand in INSTANCE_GROUP_NAMES:
         return
 
-    if all_instances:
-        names = list_instances()
-        if not names:
-            click.echo("Error: No instances found.", err=True)
-            sys.exit(1)
-        ctx.obj["instances"] = [get_instance(n) for n in names]
-        ctx.obj["instance"] = ctx.obj["instances"][0]
+    # Global commands never need an instance; ignore -i/--all entirely.
+    if subcommand in GLOBAL_COMMANDS:
         return
 
-    # Multiple instances: -i opal1,opal2
-    if instance_name and "," in instance_name:
-        names = [n.strip() for n in instance_name.split(",") if n.strip()]
-        ctx.obj["instances"] = [get_instance(n) for n in names]
-        ctx.obj["instance"] = ctx.obj["instances"][0]
+    # setup creates or targets exactly one instance.
+    if subcommand == "setup":
+        _route_setup(ctx, instance_name, all_instances)
         return
 
-    # Setup without -i always creates a new instance
-    if ctx.invoked_subcommand == "setup" and not instance_name:
-        ctx.obj["instance"] = None
-        ctx.obj["auto_create"] = True
-        return
+    hybrid = subcommand in HYBRID_COMMANDS
 
     try:
-        ctx.obj["instance"] = resolve_instance(instance_name)
+        targets = _resolve_targets(instance_name, all_instances, allow_none=hybrid)
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
+
+    ctx.obj["instances"] = targets
+    ctx.obj["instance"] = targets[0] if targets else None
 
 
 # Register commands
@@ -82,6 +136,7 @@ from src.commands.logs import logs
 from src.commands.exec import exec_cmd
 
 main.add_command(instance)
+main.add_command(instance, name="stack")  # discoverable alias
 main.add_command(setup)
 main.add_command(up)
 main.add_command(down)

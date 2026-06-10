@@ -5,12 +5,12 @@ from rich.prompt import Prompt, IntPrompt, Confirm
 
 from src.models import OpalConfig, SSLConfig, DatabaseConfig, ProfileConfig, WatchtowerConfig, SSLStrategy, DatabaseType
 from src.models.instance import InstanceContext
-from src.core.config_manager import save_config
+from src.core.config_manager import save_config, load_config, config_exists
 from src.core.secrets_manager import ensure_secrets
 from src.core.ssl import generate_server_cert
 from src.core.nginx import generate_nginx_config
 from src.core.docker import check_docker, compose_up, run_compose
-from src.utils.console import console, display_header, success, error, info, dim
+from src.utils.console import console, display_header, success, error, info, dim, warning
 from src.utils.network import is_port_in_use, find_free_port, get_local_ip, validate_port
 
 
@@ -178,7 +178,8 @@ def _collect_optional_services(config: OpalConfig) -> OpalConfig:
 
 
 @click.command()
-@click.option("--stack-name", help="Docker stack name.")
+@click.option("--name", help="Instance name (also used as the Docker stack name).")
+@click.option("--stack-name", help="Alias of --name (kept for compatibility).")
 @click.option("--host", "hosts", multiple=True, help="Hostname or IP (repeatable).")
 @click.option("--port", type=int, help="External HTTPS port.")
 @click.option("--http-port", type=int, help="HTTP port for 'none' strategy.")
@@ -199,13 +200,13 @@ def _collect_optional_services(config: OpalConfig) -> OpalConfig:
 @click.option("--password", help="Opal admin password (generated if not set).")
 @click.option("--yes", is_flag=True, help="Non-interactive mode.")
 @click.pass_context
-def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
+def setup(ctx, name, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
           ssl_cert, ssl_key, opal_version, mongo_version, databases,
           enable_watchtower, watchtower_interval, with_agate, with_mica, flavor,
           preset, password, yes):
     """Configure a new easy-opal deployment."""
     instance: InstanceContext | None = ctx.obj.get("instance")
-    auto_create = ctx.obj.get("auto_create", False)
+    desired_name = name or stack_name or ctx.obj.get("setup_name")
 
     display_header()
 
@@ -232,20 +233,47 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
         # Step 1: flavor and versions (before auto-create so we know the flavor)
         config = _collect_general(config)
 
-    # Auto-create instance if needed (now we know the flavor)
-    if auto_create and instance is None:
-        from src.core.instance_manager import create_instance, next_available_name
-        name = next_available_name(config.flavor)
-        instance = create_instance(name)
-        info(f"Created instance '{name}'.")
+    # Resolve the target instance: create a new one (named after the stack) or
+    # reconfigure an existing one. The instance name IS the Docker stack name.
+    if instance is None:
+        from src.core.instance_manager import create_instance, next_available_name, get_instance
+        chosen = desired_name
+        if not chosen:
+            default_name = next_available_name(config.flavor)
+            chosen = (
+                Prompt.ask("Instance name (also the Docker stack name)", default=default_name)
+                if is_interactive else default_name
+            )
+        try:
+            instance = get_instance(chosen)  # already exists -> reconfigure it
+        except ValueError:
+            try:
+                instance = create_instance(chosen)
+            except ValueError as e:
+                error(str(e))
+                return
+            info(f"Created instance '{instance.name}'.")
 
-    # Default stack name to instance name
-    if config.stack_name == "easy-opal":
+    # Confirm before overwriting an already-configured instance.
+    if config_exists(instance) and is_interactive:
+        if not Confirm.ask(
+            f"Instance '{instance.name}' is already configured. Overwrite its configuration?",
+            default=False,
+        ):
+            info("Setup cancelled.")
+            return
+
+    # Preserve an existing instance's stack name (legacy instances may have a
+    # stack name that differs from their name); otherwise the name is the stack.
+    if config_exists(instance):
+        try:
+            config.stack_name = load_config(instance).stack_name
+        except Exception:
+            config.stack_name = instance.name
+    else:
         config.stack_name = instance.name
 
     if is_interactive:
-        # Update stack name default now that we have the instance name
-        config.stack_name = Prompt.ask("Stack name", default=config.stack_name)
         config = _collect_ssl(config)
         if config.flavor == "opal":
             config = _collect_databases(config)
@@ -254,8 +282,6 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
         config = _collect_optional_services(config)
     else:
         # Non-interactive: apply CLI flags
-        if stack_name:
-            config.stack_name = stack_name
         if hosts:
             config.hosts = list(hosts)
         if port:
@@ -296,18 +322,8 @@ def setup(ctx, stack_name, hosts, port, http_port, ssl_strategy, ssl_email,
                 DatabaseConfig(type=DatabaseType(db_type), name=name, port=int(port_str), user=user, version=version)
             )
 
-    # Validate stack name
-    from src.core.instance_manager import validate_name, update_stack_name, is_stack_name_taken
-    err = validate_name(config.stack_name)
-    if err:
-        error(f"Invalid stack name: {err}")
-        return
-
-    taken_by = is_stack_name_taken(config.stack_name, exclude_instance=instance.name)
-    if taken_by:
-        error(f"Stack name '{config.stack_name}' is already used by instance '{taken_by}'. Choose a different name.")
-        return
-
+    # Mirror the stack name into the registry (config.json is the source of truth).
+    from src.core.instance_manager import update_stack_name
     update_stack_name(instance.name, config.stack_name)
 
     # Save config and generate secrets

@@ -53,11 +53,29 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _read_stack_name(path: Path) -> str | None:
+    """Read stack_name from an instance's config.json without side effects.
+
+    config.json is the source of truth for the Docker Compose project name; the
+    registry only mirrors it. Reading raw JSON avoids load_config()'s side effect
+    of creating a default config for unconfigured directories.
+    """
+    cfg_path = path / "config.json"
+    if not cfg_path.exists():
+        return None
+    try:
+        return json.loads(cfg_path.read_text()).get("stack_name")
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
 def sync_registry() -> dict:
     """Sync registry with filesystem. Returns the synced registry.
 
     - Removes entries whose directories no longer exist.
     - Discovers directories not yet in the registry.
+    - Backfills/refreshes each entry's stack_name from its config.json so the
+      registry never disagrees with the real Docker project name.
     """
     registry = _load_registry()
     instances = registry.setdefault("instances", {})
@@ -80,8 +98,15 @@ def sync_registry() -> dict:
                 "path": str(p),
                 "created_at": _now_iso(),
                 "last_accessed": _now_iso(),
-                "stack_name": None,
+                "stack_name": _read_stack_name(p),
             }
+            changed = True
+
+    # Backfill/refresh stack_name from config.json (the source of truth)
+    for meta in instances.values():
+        real = _read_stack_name(Path(meta["path"]))
+        if real and meta.get("stack_name") != real:
+            meta["stack_name"] = real
             changed = True
 
     if changed:
@@ -190,10 +215,21 @@ def get_registry_info() -> dict[str, dict]:
 
 
 def create_instance(name: str, path: Path | None = None) -> InstanceContext:
-    """Create a new instance. Validates name, registers in registry."""
+    """Create a new instance. Validates name, checks collisions, registers it.
+
+    The instance name doubles as the Docker stack name, so it must not collide
+    with another instance's stack name either.
+    """
     err = validate_name(name)
     if err:
         raise ValueError(err)
+
+    taken_by = is_stack_name_taken(name)
+    if taken_by and taken_by != name:
+        raise ValueError(
+            f"Name '{name}' is already used as the stack name of instance "
+            f"'{taken_by}'. Choose a different name."
+        )
 
     if path is not None:
         root = path / name
@@ -205,7 +241,7 @@ def create_instance(name: str, path: Path | None = None) -> InstanceContext:
 
     ctx = InstanceContext(name=name, root=root)
     ctx.ensure_dirs()
-    _register_instance(name, root)
+    _register_instance(name, root, stack_name=name)
     return ctx
 
 
@@ -220,23 +256,24 @@ def remove_instance(name: str, delete_data: bool = False) -> None:
 
     root = Path(meta["path"])
     compose_file = root / "docker-compose.yml"
-    stack_name = meta.get("stack_name")
+    # config.json is the authoritative source for the Docker project name;
+    # fall back to the registry mirror, then the instance name. Never skip
+    # teardown just because the registry's cached stack_name is missing.
+    stack_name = _read_stack_name(root) or meta.get("stack_name") or name
 
     # Stop containers (and remove volumes if delete_data)
-    if compose_file.exists() and stack_name:
+    if compose_file.exists():
         down_args = ["docker", "compose", "--project-name", stack_name,
                      "-f", str(compose_file), "down"]
         if delete_data:
             down_args.append("-v")
-        subprocess.run(down_args, capture_output=True, check=False, timeout=60)
+        subprocess.run(down_args, capture_output=True, check=False, timeout=120)
 
-    if delete_data and root.exists():
+    # Remove the instance directory entirely so it is not rediscovered on the
+    # next sync. Docker named volumes are preserved unless --delete-data added
+    # the -v flag to the compose down above.
+    if root.exists():
         shutil.rmtree(root)
-    elif root.exists():
-        for f in ["config.json", "secrets.env", "docker-compose.yml"]:
-            p = root / f
-            if p.exists():
-                p.unlink()
 
     _unregister_instance(name)
 
@@ -281,19 +318,36 @@ def resolve_instance(name: str | None) -> InstanceContext:
 
 
 def next_available_name(prefix: str) -> str:
-    """Find the next available instance name like opal1, opal2, etc."""
-    existing = set(list_instances())
+    """Find the next free name like opal1, opal2, avoiding both instance names
+    and stack names (they share a namespace since a new instance's name is also
+    its stack name)."""
+    registry = sync_registry()
+    used = set(registry.get("instances", {}).keys())
+    for meta in registry.get("instances", {}).values():
+        if meta.get("stack_name"):
+            used.add(meta["stack_name"])
+        real = _read_stack_name(Path(meta["path"]))
+        if real:
+            used.add(real)
     i = 1
-    while f"{prefix}{i}" in existing:
+    while f"{prefix}{i}" in used:
         i += 1
     return f"{prefix}{i}"
 
 
 def is_stack_name_taken(stack_name: str, exclude_instance: str | None = None) -> str | None:
-    """Returns the instance name using this stack_name, or None if available."""
-    registry = _load_registry()
+    """Returns the instance whose stack uses this name, or None if available.
+
+    Reads each instance's config.json (authoritative) and falls back to the
+    registry's cached stack_name, so collisions are caught even for instances
+    discovered on disk or whose registry entry is stale.
+    """
+    registry = sync_registry()
     for inst_name, meta in registry.get("instances", {}).items():
-        if inst_name != exclude_instance and meta.get("stack_name") == stack_name:
+        if inst_name == exclude_instance:
+            continue
+        used = _read_stack_name(Path(meta["path"])) or meta.get("stack_name")
+        if used == stack_name:
             return inst_name
     return None
 

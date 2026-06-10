@@ -13,7 +13,7 @@ from src.core.config_manager import load_config, save_config, config_exists
 from src.core.secrets_manager import load_secrets, save_secrets
 from src.core.docker import generate_compose
 from src.core.nginx import generate_nginx_config
-from src.utils.console import console, success, error, info, warning
+from src.utils.console import console, success, error, info, warning, require_single_instance
 
 
 def _apply_config(
@@ -57,7 +57,7 @@ def config():
 @click.pass_context
 def show(ctx):
     """Display the current configuration."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     cfg = load_config(instance)
     console.print(cfg.model_dump_json(indent=2))
 
@@ -66,7 +66,7 @@ def show(ctx):
 @click.pass_context
 def show_version(ctx):
     """Show configured service versions."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     cfg = load_config(instance)
 
     table = Table(title="Service Versions")
@@ -94,7 +94,7 @@ def show_version(ctx):
 @click.pass_context
 def change_version(ctx, version, service, pull):
     """Change a service's Docker image version."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     cfg = load_config(instance)
 
     service_keys = {"opal": "opal_version", "mongo": "mongo_version", "nginx": "nginx_version"}
@@ -143,7 +143,7 @@ def _admin_pw_key(instance: InstanceContext) -> str:
 @click.pass_context
 def show_password(ctx):
     """Show the current admin password."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     secrets = load_secrets(instance)
     key = _admin_pw_key(instance)
     pw = secrets.get(key)
@@ -158,7 +158,7 @@ def show_password(ctx):
 @click.pass_context
 def change_password(ctx, password):
     """Change the admin password."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     secrets = load_secrets(instance)
     new_pw = password or Prompt.ask("New admin password", password=True)
     if not new_pw or not new_pw.strip():
@@ -180,7 +180,7 @@ def change_password(ctx, password):
 @click.pass_context
 def change_port(ctx, port, dry_run):
     """Change the external port. Updates CSRF automatically."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     cfg = load_config(instance)
 
     if cfg.ssl.strategy == SSLStrategy.NONE:
@@ -202,7 +202,7 @@ def change_port(ctx, port, dry_run):
 @click.pass_context
 def remove_database(ctx, name, delete_volume, yes):
     """Remove a database instance from the stack."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     cfg = load_config(instance)
 
     if not cfg.databases:
@@ -256,7 +256,7 @@ def remove_database(ctx, name, delete_volume, yes):
 @click.pass_context
 def change_hosts(ctx, hosts, dry_run):
     """Change the host list. Regenerates certs and CSRF."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     cfg = load_config(instance)
 
     if hosts:
@@ -285,7 +285,7 @@ def change_hosts(ctx, hosts, dry_run):
 @click.pass_context
 def change_ssl(ctx, strategy, ssl_cert, ssl_key, ssl_email):
     """Change the SSL strategy. Handles cert transitions automatically."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     cfg = load_config(instance)
 
     old_strategy = cfg.ssl.strategy
@@ -354,7 +354,7 @@ def change_ssl(ctx, strategy, ssl_cert, ssl_key, ssl_email):
 @click.pass_context
 def watchtower(ctx, action, interval, cleanup):
     """Manage Watchtower automatic container updates."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     cfg = load_config(instance)
 
     if not action and interval is None and cleanup is None:
@@ -403,7 +403,7 @@ def watchtower(ctx, action, interval, cleanup):
 @click.pass_context
 def agate(ctx, action, mail_mode, smtp_host, smtp_port, smtp_user, smtp_password, smtp_from, smtp_tls):
     """Manage Agate authentication server."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     cfg = load_config(instance)
 
     if not action and mail_mode is None and smtp_host is None:
@@ -475,7 +475,7 @@ def agate(ctx, action, mail_mode, smtp_host, smtp_port, smtp_user, smtp_password
 @click.pass_context
 def mica(ctx, action):
     """Manage Mica data portal (requires Agate)."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     cfg = load_config(instance)
 
     if not action:
@@ -511,7 +511,7 @@ def mica(ctx, action):
 @click.pass_context
 def profile_updates_config(ctx, action, every):
     """Manage scheduled pre-pulling of profile images (applied on next restart)."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     cfg = load_config(instance)
 
     if not action and every is None:
@@ -556,7 +556,7 @@ def profile_updates_config(ctx, action, every):
 @click.pass_context
 def backup_config(ctx, action, every, keep):
     """Manage automated backups."""
-    instance: InstanceContext = ctx.obj["instance"]
+    instance: InstanceContext = require_single_instance(ctx)
     cfg = load_config(instance)
 
     if not action and every is None and keep is None:

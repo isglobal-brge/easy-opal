@@ -67,7 +67,11 @@ def _status_summary(statuses: dict[str, str]) -> str:
 
 @click.group()
 def instance():
-    """Manage easy-opal instances (independent deployments)."""
+    """Manage easy-opal instances / stacks (independent deployments).
+
+    Also available as 'easy-opal stack'. An instance's name is also its Docker
+    stack (Compose project) name.
+    """
     pass
 
 
@@ -146,18 +150,22 @@ def remove(name: str, delete_data: bool, yes: bool):
     """Remove an instance (stops containers, optionally deletes volumes)."""
     if not yes:
         if delete_data:
-            action = "stop containers, delete all data and Docker volumes for"
+            action = ("stop containers and delete the instance directory AND its "
+                      "Docker named volumes (all data) for")
         else:
-            action = "stop containers and remove config for"
+            action = ("stop containers and delete the instance directory "
+                      "(config, backups, certificates) for")
         if not click.confirm(f"Are you sure you want to {action} instance '{name}'?"):
             console.print("Aborted.")
             return
 
     try:
         instance_manager.remove_instance(name, delete_data=delete_data)
-        msg = f"Instance '{name}' removed."
-        if not delete_data:
-            msg += " Docker volumes were preserved. Use --delete-data to also remove them."
+        if delete_data:
+            msg = f"Instance '{name}' removed, including its Docker named volumes."
+        else:
+            msg = (f"Instance '{name}' removed (config, backups, and certificates deleted). "
+                   f"Docker named volumes were preserved — use --delete-data to also remove them.")
         success(msg)
     except ValueError as e:
         error(str(e))
