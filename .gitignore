@@ -28,3 +28,4 @@ Thumbs.db
 /.env
 /data/
 /backups/
+errorReportSql.txt
