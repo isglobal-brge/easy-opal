@@ -20,12 +20,14 @@ jobs:
         runtime: [docker, podman]
     runs-on: ubuntu-24.04
     env:
-      EASY_OPAL_HOME: ${{ runner.temp }}/easy-opal
       TEST_RUNTIME: ${{ matrix.runtime }}
-      UV_TOOL_BIN_DIR: ${{ runner.temp }}/uv-tools
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+      - name: Configure temporary paths
+        run: |
+          echo "EASY_OPAL_HOME=$RUNNER_TEMP/easy-opal" >> "$GITHUB_ENV"
+          echo "UV_TOOL_BIN_DIR=$RUNNER_TEMP/uv-tools" >> "$GITHUB_ENV"
       - run: uv sync --frozen
       - name: Install Podman and its independent Compose provider
         if: matrix.runtime == 'podman'
