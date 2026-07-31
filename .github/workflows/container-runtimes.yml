@@ -24,6 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          save-cache: false
       - name: Configure temporary paths
         run: |
           echo "EASY_OPAL_HOME=$RUNNER_TEMP/easy-opal" >> "$GITHUB_ENV"
