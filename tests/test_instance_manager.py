@@ -1,6 +1,8 @@
 """Registry / naming logic: instance name == stack name, config.json as source of truth."""
 
 import json
+import multiprocessing
+import os
 import time
 from pathlib import Path
 
@@ -20,6 +22,24 @@ def _write_config(root: Path, stack_name: str) -> None:
     (root / "config.json").write_text(
         json.dumps({"schema_version": 2, "stack_name": stack_name})
     )
+
+
+def _hold_default_runtime_update(home: str, loaded, release) -> None:
+    os.environ["EASY_OPAL_HOME"] = home
+    with im._registry_lock():
+        registry = im._load_registry()
+        loaded.set()
+        if not release.wait(5):
+            raise RuntimeError("test did not release the registry writer")
+        registry["default_runtime"] = "podman"
+        im._save_registry(registry)
+
+
+def _set_binding_concurrently(home: str, attempted, finished) -> None:
+    os.environ["EASY_OPAL_HOME"] = home
+    attempted.set()
+    im.set_instance_runtime("study", "docker")
+    finished.set()
 
 
 class TestNaming:
@@ -93,6 +113,60 @@ class TestSync:
         ctx = im.create_instance("bound")
         with pytest.raises(ValueError, match="Unsupported container runtime"):
             im.set_instance_runtime(ctx, "containerd")
+
+    def test_default_runtime_preference_is_host_local(self, home):
+        ctx = im.create_instance("study")
+
+        im.set_default_runtime("podman")
+
+        assert im.get_default_runtime() == "podman"
+        assert im._load_registry()["default_runtime"] == "podman"
+        assert not ctx.config_path.exists()
+
+    def test_selecting_auto_clears_default_runtime_preference(self, home):
+        im.set_default_runtime("docker")
+
+        im.set_default_runtime("auto")
+
+        assert im.get_default_runtime() == "auto"
+        assert "default_runtime" not in im._load_registry()
+
+    def test_default_runtime_preference_rejects_unknown_runtime(self, home):
+        with pytest.raises(ValueError, match="Unsupported default container runtime"):
+            im.set_default_runtime("containerd")
+
+    def test_default_and_binding_updates_are_cross_process_atomic(self, home):
+        im.create_instance("study")
+        context = multiprocessing.get_context("fork")
+        loaded = context.Event()
+        release = context.Event()
+        attempted = context.Event()
+        finished = context.Event()
+        holder = context.Process(
+            target=_hold_default_runtime_update,
+            args=(str(home), loaded, release),
+        )
+        binder = context.Process(
+            target=_set_binding_concurrently,
+            args=(str(home), attempted, finished),
+        )
+
+        holder.start()
+        try:
+            assert loaded.wait(2)
+            binder.start()
+            assert attempted.wait(2)
+            assert not finished.wait(0.1)
+        finally:
+            release.set()
+            holder.join(5)
+            if binder.pid is not None:
+                binder.join(5)
+
+        assert holder.exitcode == 0
+        assert binder.exitcode == 0
+        assert im.get_default_runtime() == "podman"
+        assert im.get_instance_runtime("study") == "docker"
 
 
 class TestLock:

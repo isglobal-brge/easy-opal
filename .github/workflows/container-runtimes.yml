@@ -75,6 +75,7 @@ jobs:
           set_requested_runtime(runtime)
           generate_compose(config, instance)
           PY
+
       - name: Validate with Docker Compose
         if: matrix.runtime == 'docker'
         run: docker compose -f "$EASY_OPAL_HOME/instances/smoke/docker-compose.yml" config --quiet
@@ -166,3 +167,24 @@ jobs:
                       f"Compose down failed with exit code {stopped.returncode}"
                   )
           PY
+
+  cross-runtime-backup-restore:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      EASY_OPAL_CROSS_RUNTIME: "1"
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          save-cache: false
+      - run: uv sync --frozen
+      - name: Install Podman and its independent Compose provider
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes podman
+          mkdir -p "$RUNNER_TEMP/uv-tools"
+          echo "$RUNNER_TEMP/uv-tools" >> "$GITHUB_PATH"
+          UV_TOOL_BIN_DIR="$RUNNER_TEMP/uv-tools" uv tool install "podman-compose==1.6.0"
+      - name: Verify core backup/restore portability in both directions
+        run: uv run pytest -q tests/test_cross_runtime_backup_restore.py

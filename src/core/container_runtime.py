@@ -80,26 +80,52 @@ class ContainerRuntime:
 _requested_runtime: str | None = None
 
 
-def set_requested_runtime(runtime: str) -> None:
+def set_requested_runtime(runtime: str | None) -> None:
     """Set the runtime choice for the current CLI invocation."""
+    global _requested_runtime
+
+    if runtime is None:
+        _requested_runtime = None
+        return
     if runtime not in RUNTIME_CHOICES:
         choices = ", ".join(RUNTIME_CHOICES)
         raise ValueError(f"Invalid container runtime '{runtime}'. Choose one of: {choices}.")
 
-    global _requested_runtime
     _requested_runtime = runtime
 
 
-def _runtime_choice() -> str:
-    choice = _requested_runtime
-    if choice is None:
-        choice = os.environ.get("EASY_OPAL_RUNTIME", "auto").strip().lower()
+def get_runtime_selection() -> tuple[str, bool]:
+    """Return the effective choice and whether it is a strong override."""
+    if _requested_runtime is not None:
+        return _requested_runtime, True
+
+    environment_choice = os.environ.get("EASY_OPAL_RUNTIME")
+    if environment_choice is not None:
+        choice = environment_choice.strip().lower()
+        if choice not in RUNTIME_CHOICES:
+            choices = ", ".join(RUNTIME_CHOICES)
+            raise RuntimeSelectionError(
+                f"Invalid EASY_OPAL_RUNTIME value '{choice}'. Choose one of: {choices}."
+            )
+        return choice, True
+
+    from src.core.instance_manager import get_default_runtime
+
+    try:
+        choice = get_default_runtime()
+    except ValueError as exc:
+        raise RuntimeSelectionError(str(exc)) from exc
     if choice not in RUNTIME_CHOICES:
         choices = ", ".join(RUNTIME_CHOICES)
         raise RuntimeSelectionError(
-            f"Invalid EASY_OPAL_RUNTIME value '{choice}'. Choose one of: {choices}."
+            f"Invalid saved runtime preference '{choice}'. Choose one of: {choices}."
         )
-    return choice
+    return choice, False
+
+
+def get_runtime_choice() -> str:
+    """Return the effective runtime choice without probing an engine."""
+    return get_runtime_selection()[0]
 
 
 def _definition(name: str) -> ContainerRuntime:
@@ -148,7 +174,11 @@ def _probe(command: list[str], env: dict[str, str]) -> tuple[bool, str, str]:
     )
 
 
-def _available_runtime(name: str) -> tuple[ContainerRuntime | None, str]:
+def probe_runtime(name: str) -> tuple[ContainerRuntime | None, str]:
+    """Probe one complete engine + Compose pair without changing bindings."""
+    if name not in RUNTIME_NAMES:
+        raise ValueError(f"Unsupported container runtime: {name}")
+
     if name == "podman":
         provider = shutil.which("podman-compose")
         if not provider:
@@ -270,6 +300,19 @@ def _available_runtime(name: str) -> tuple[ContainerRuntime | None, str]:
     return runtime, ""
 
 
+def probe_runtimes() -> tuple[dict[str, ContainerRuntime], dict[str, str]]:
+    """Probe every supported runtime without selecting or binding one."""
+    available: dict[str, ContainerRuntime] = {}
+    failures: dict[str, str] = {}
+    for name in RUNTIME_NAMES:
+        runtime, failure = probe_runtime(name)
+        if runtime is None:
+            failures[name] = failure
+        else:
+            available[name] = runtime
+    return available, failures
+
+
 def _instance_binding(instance: InstanceContext | None) -> str | None:
     if instance is None:
         return None
@@ -349,9 +392,13 @@ def _persist_runtime(instance: InstanceContext, runtime: ContainerRuntime) -> No
     set_instance_runtime(instance, runtime.name)
 
 
-def get_runtime(instance: InstanceContext | None = None) -> ContainerRuntime:
+def get_runtime(
+    instance: InstanceContext | None = None,
+    *,
+    selection: tuple[str, bool] | None = None,
+) -> ContainerRuntime:
     """Resolve a complete engine + Compose pair, respecting instance binding."""
-    choice = _runtime_choice()
+    choice, explicit = selection or get_runtime_selection()
     binding = _instance_binding(instance)
 
     if binding is not None and binding not in RUNTIME_NAMES:
@@ -359,7 +406,7 @@ def get_runtime(instance: InstanceContext | None = None) -> ContainerRuntime:
             f"Instance '{instance.name}' has invalid runtime binding '{binding}' in the registry."
         )
 
-    if choice != "auto" and binding and choice != binding:
+    if explicit and choice != "auto" and binding and choice != binding:
         raise RuntimeSelectionError(
             f"Instance '{instance.name}' is bound to {binding}, but {choice} was requested. "
             "Use the bound runtime. Moving an instance between engines is not automatic; "
@@ -381,13 +428,13 @@ def get_runtime(instance: InstanceContext | None = None) -> ContainerRuntime:
     if (
         instance is not None
         and binding is None
-        and choice == "auto"
+        and (choice == "auto" or not explicit)
         and instance.config_path.exists()
     ):
         available: list[ContainerRuntime] = []
         failures: list[str] = []
-        for name in candidates:
-            runtime, failure = _available_runtime(name)
+        for name in RUNTIME_NAMES:
+            runtime, failure = probe_runtime(name)
             if runtime is None:
                 failures.append(f"{name}: {failure}")
             else:
@@ -422,7 +469,7 @@ def get_runtime(instance: InstanceContext | None = None) -> ContainerRuntime:
 
     failures: list[str] = []
     for name in candidates:
-        runtime, failure = _available_runtime(name)
+        runtime, failure = probe_runtime(name)
         if runtime is None:
             failures.append(f"{name}: {failure}")
             continue

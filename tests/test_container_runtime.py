@@ -85,6 +85,108 @@ def test_auto_prefers_docker_and_persists_binding(monkeypatch):
     assert all(command[0] == "docker" for command in calls)
 
 
+def test_saved_preference_selects_only_podman_for_new_instance(monkeypatch):
+    ctx = im.create_instance("study")
+    im.set_default_runtime("podman")
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return _result(command)
+
+    monkeypatch.setattr(cr.subprocess, "run", fake_run)
+
+    assert cr.get_runtime(ctx).name == "podman"
+    assert im.get_instance_runtime(ctx) == "podman"
+    assert calls
+    assert all(command[0] not in {"docker", "docker-compose"} for command in calls)
+
+
+def test_saved_preference_never_overrides_existing_binding(monkeypatch):
+    ctx = im.create_instance("study")
+    im.set_instance_runtime(ctx, "docker")
+    im.set_default_runtime("podman")
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return _result(command)
+
+    monkeypatch.setattr(cr.subprocess, "run", fake_run)
+
+    assert cr.get_runtime(ctx).name == "docker"
+    assert calls
+    assert all(command[0] == "docker" for command in calls)
+
+
+def test_explicit_auto_ignores_saved_preference(monkeypatch):
+    im.set_default_runtime("podman")
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return _result(command)
+
+    monkeypatch.setattr(cr.subprocess, "run", fake_run)
+    cr.set_requested_runtime("auto")
+
+    assert cr.get_runtime().name == "docker"
+    assert calls
+    assert all(command[0] == "docker" for command in calls)
+
+
+def test_environment_choice_overrides_saved_preference(monkeypatch):
+    im.set_default_runtime("podman")
+    monkeypatch.setenv("EASY_OPAL_RUNTIME", "docker")
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return _result(command)
+
+    monkeypatch.setattr(cr.subprocess, "run", fake_run)
+
+    assert cr.get_runtime().name == "docker"
+    assert calls
+    assert all(command[0] == "docker" for command in calls)
+
+
+def test_unavailable_saved_preference_does_not_fall_back(monkeypatch):
+    im.set_default_runtime("podman")
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        if command == ["podman", "compose", "version"]:
+            return _result(command, returncode=1, stderr="compose unavailable")
+        return _result(command)
+
+    monkeypatch.setattr(cr.subprocess, "run", fake_run)
+
+    with pytest.raises(cr.RuntimeSelectionError, match="podman"):
+        cr.get_runtime()
+    assert all(command[0] not in {"docker", "docker-compose"} for command in calls)
+
+
+def test_runtime_discovery_is_read_only_and_checks_both_pairs(monkeypatch):
+    ctx = im.create_instance("study")
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return _result(command)
+
+    monkeypatch.setattr(cr.subprocess, "run", fake_run)
+
+    available, failures = cr.probe_runtimes()
+
+    assert set(available) == {"docker", "podman"}
+    assert failures == {}
+    assert any(command[0] == "docker" for command in calls)
+    assert any(command[0] in {"podman", "/usr/bin/podman-compose"} for command in calls)
+    assert im.get_instance_runtime(ctx) is None
+
+
 def test_auto_does_not_misclassify_podman_docker_shim(monkeypatch):
     calls = []
 
@@ -300,6 +402,22 @@ def test_binding_is_used_in_auto_even_when_docker_is_available(monkeypatch):
 
     assert cr.get_runtime(ctx).name == "podman"
     assert all(command[0] not in {"docker", "docker-compose"} for command in calls)
+
+
+def test_saved_preference_does_not_claim_configured_legacy_instance(monkeypatch):
+    ctx = im.create_instance("study")
+    save_config(OpalConfig(stack_name="study"), ctx)
+    im.set_default_runtime("podman")
+
+    def fake_run(command, **kwargs):
+        if command[:2] == ["docker", "ps"] and "-a" in command:
+            return _result(command, stdout="docker-container\n")
+        return _result(command)
+
+    monkeypatch.setattr(cr.subprocess, "run", fake_run)
+
+    assert cr.get_runtime(ctx).name == "docker"
+    assert im.get_instance_runtime(ctx) == "docker"
 
 
 def test_legacy_instance_adopts_engine_that_owns_its_resources(monkeypatch):

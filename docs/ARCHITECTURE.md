@@ -16,7 +16,7 @@ src/
   core/
     config_manager.py        # load_config / save_config (Pydantic + migration)
     secrets_manager.py       # secrets.env: generate, load, save, ensure
-    instance_manager.py      # Multi-instance CRUD, registry, lock, name validation
+    instance_manager.py      # Multi-instance CRUD, registry, runtime default/bindings, locks
     container_runtime.py     # Runtime selection, binding, probing, command execution
     docker.py                # Compatibility wrappers + Compose generate/run/up/down
     auto_update.py           # Image pull, health verification, and compensating rollback
@@ -50,6 +50,7 @@ src/
     certs.py                 # regenerate, info, ca-regenerate
     profiles.py              # add, remove, list
     instances.py             # create, list, info, remove
+    runtime.py               # Read-only probes and interactive/non-interactive default selection
     backup.py                # create, restore, list
     volumes.py               # list, prune
     diagnose.py              # Stack health checks (containers, SSL, endpoints, databases)
@@ -67,6 +68,8 @@ tests/
   test_models.py             # Pydantic model tests
   test_services.py           # Service registry tests
   test_container_runtime.py  # Runtime selection and binding tests
+  test_runtime_commands.py   # Persistent/default runtime CLI selection tests
+  test_cross_runtime_backup_restore.py # Real Docker <-> Podman core-data portability smoke
   test_auto_update.py        # Update, verification, and rollback tests
   test_auto_update_scheduler.py # systemd/launchd rendering and lifecycle tests
   test_migration.py          # Schema migration tests
@@ -81,7 +84,8 @@ pyproject.toml               # Dependencies: click, rich, pydantic, pyyaml, cryp
 
 ```
 ~/.easy-opal/
-  registry.json              # name -> path, created_at, last_accessed, stack_name
+  registry.json              # Default runtime plus per-instance path, stack, and binding
+  .registry.lock             # Cross-process lock for atomic registry updates
   instances/
     <name>/
       config.json            # Source of truth (Pydantic OpalConfig, schema_version: 2)
@@ -157,12 +161,28 @@ scheduler.
 container engine. Callers obtain a `ContainerRuntime` and use `run()`,
 `compose()`, or `pull()`; they do not invoke `docker` or `podman` directly.
 
-Selection is controlled by the global `--runtime auto|docker|podman` option or
-`EASY_OPAL_RUNTIME`. An explicit choice probes only that runtime. `auto` first
-reuses the runtime stored for the target instance; for an unbound instance it
-probes complete engine + Compose pairs. Docker is the tie-breaker if both pairs
-are usable. The resolved choice is persisted in the host-local registry so
-installing another engine cannot silently move an existing deployment.
+Selection has three separate layers. `--runtime auto|docker|podman` and
+`EASY_OPAL_RUNTIME` are strong per-invocation requests. `runtime select` stores
+a soft host-local default for new or not-yet-configured instances. Newly
+configured instances receive their own binding. A binding wins over a soft
+default, while a contradictory strong request fails instead of changing
+engines; older installations may remain unbound until ownership is resolved.
+
+For a new instance the precedence is CLI option, environment variable, saved
+default, then `auto`. An explicit Docker or Podman choice probes only that
+runtime. Interactive setup asks only for implicit `auto` (no override or saved
+preference) when both complete engine + Compose pairs are usable;
+non-interactive auto keeps Docker as its deterministic tie-breaker. Probing and
+`runtime status` are read-only; resolving an unbound instance may persist its
+binding. The resolved choice is stored in the host-local registry so installing
+another engine cannot silently move an existing deployment. For configured
+legacy instances without a binding, a unique existing owner determines the
+binding; multiple owners or no identifiable owner require an explicit choice.
+A soft default never claims that legacy instance.
+
+Registry read-modify-write transactions use a host-local `flock`, and the JSON
+file is published with an atomic replace. Concurrent selection, binding, and
+instance metadata updates therefore cannot overwrite one another.
 
 The registry binding currently identifies the engine family, not its context,
 remote endpoint, graph root, or rootless/rootful storage. Operators must keep

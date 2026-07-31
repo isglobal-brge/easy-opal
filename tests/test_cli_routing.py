@@ -4,12 +4,15 @@ import pytest
 from click.testing import CliRunner
 
 from src.cli import main
+from src.core import container_runtime as cr
 from src.core import instance_manager as im
 
 
 @pytest.fixture
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("EASY_OPAL_HOME", str(tmp_path))
+    monkeypatch.delenv("EASY_OPAL_RUNTIME", raising=False)
+    monkeypatch.setattr(cr, "_requested_runtime", None)
     return tmp_path
 
 
@@ -152,13 +155,35 @@ class TestStackAlias:
         assert result.exit_code == 0, result.output
         assert "unavail" in result.output
 
+    def test_unconfigured_instance_list_and_info_show_runtime_binding(
+        self, home, runner
+    ):
+        instance = im.create_instance("podman-study")
+        im.set_instance_runtime(instance, "podman")
+
+        listed = runner.invoke(
+            main, ["instance", "list"], terminal_width=160
+        )
+        detailed = runner.invoke(main, ["instance", "info", "podman-study"])
+
+        assert listed.exit_code == 0, listed.output
+        assert "podman" in listed.output
+        assert "configured" in listed.output
+        assert detailed.exit_code == 0, detailed.output
+        assert "Runtime: podman" in detailed.output
+
 
 @pytest.fixture
 def no_docker(monkeypatch):
     """Stub out runtime touchpoints so setup can run without a real stack."""
     import src.commands.setup as setup_mod
     runtime = type("Runtime", (), {"name": "docker"})()
-    monkeypatch.setattr(setup_mod, "get_runtime", lambda instance=None: runtime)
+    monkeypatch.setattr(
+        setup_mod, "get_runtime", lambda instance=None, **_kwargs: runtime
+    )
+    monkeypatch.setattr(
+        setup_mod, "get_runtime_selection", lambda: ("docker", False)
+    )
     monkeypatch.setattr(
         setup_mod, "rootless_port_threshold", lambda runtime: None
     )
@@ -207,6 +232,131 @@ class TestRuntimeSelection:
 
         assert result.exit_code == 0, result.output
         assert im.get_instance_runtime("study") == "podman"
+
+    def test_saved_preference_binds_new_instance(
+        self, home, runner, monkeypatch
+    ):
+        import src.commands.instances as instances_mod
+
+        im.set_default_runtime("podman")
+        runtime = type("Runtime", (), {"name": "podman"})()
+        monkeypatch.setattr(instances_mod, "get_runtime", lambda: runtime)
+
+        result = runner.invoke(main, ["instance", "create", "study"])
+
+        assert result.exit_code == 0, result.output
+        assert im.get_instance_runtime("study") == "podman"
+
+    def test_explicit_auto_ignores_preference_and_leaves_create_unbound(
+        self, home, runner, monkeypatch
+    ):
+        import src.commands.instances as instances_mod
+
+        im.set_default_runtime("podman")
+        monkeypatch.setattr(
+            instances_mod,
+            "get_runtime",
+            lambda: pytest.fail("explicit auto must defer binding until setup"),
+        )
+
+        result = runner.invoke(
+            main, ["--runtime", "auto", "instance", "create", "study"]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert im.get_instance_runtime("study") is None
+
+    def test_setup_runtime_wizard_chooses_between_usable_pairs(
+        self, home, monkeypatch
+    ):
+        import src.commands.setup as setup_mod
+
+        docker = type("Runtime", (), {"name": "docker"})()
+        podman = type("Runtime", (), {"name": "podman"})()
+        monkeypatch.setattr(
+            setup_mod,
+            "probe_runtimes",
+            lambda: ({"docker": docker, "podman": podman}, {}),
+        )
+        monkeypatch.setattr(
+            setup_mod.Prompt,
+            "ask",
+            lambda *args, **kwargs: "podman",
+        )
+
+        runtime = setup_mod._resolve_setup_runtime(None, interactive=True)
+
+        assert runtime.name == "podman"
+        assert cr.get_runtime_choice() == "podman"
+
+    def test_setup_runtime_wizard_auto_selects_only_usable_pair(
+        self, home, monkeypatch
+    ):
+        import src.commands.setup as setup_mod
+
+        podman = type("Runtime", (), {"name": "podman"})()
+        monkeypatch.setattr(
+            setup_mod,
+            "probe_runtimes",
+            lambda: ({"podman": podman}, {"docker": "daemon stopped"}),
+        )
+        monkeypatch.setattr(
+            setup_mod.Prompt,
+            "ask",
+            lambda *args, **kwargs: pytest.fail("one usable runtime must not prompt"),
+        )
+
+        runtime = setup_mod._resolve_setup_runtime(None, interactive=True)
+
+        assert runtime.name == "podman"
+        assert cr.get_runtime_choice() == "podman"
+
+    def test_non_interactive_setup_never_runs_runtime_wizard(
+        self, home, monkeypatch
+    ):
+        import src.commands.setup as setup_mod
+
+        docker = type("Runtime", (), {"name": "docker"})()
+        selections = []
+
+        def resolve(_instance=None, *, selection=None):
+            selections.append(selection)
+            return docker
+
+        monkeypatch.setattr(setup_mod, "get_runtime", resolve)
+        monkeypatch.setattr(
+            setup_mod,
+            "probe_runtimes",
+            lambda: pytest.fail("non-interactive setup must not discover for a prompt"),
+        )
+
+        runtime = setup_mod._resolve_setup_runtime(None, interactive=False)
+
+        assert runtime.name == "docker"
+        assert selections == [("auto", False)]
+
+    def test_explicit_auto_skips_setup_prompt_and_saved_preference(
+        self, home, monkeypatch
+    ):
+        import src.commands.setup as setup_mod
+
+        im.set_default_runtime("podman")
+        cr.set_requested_runtime("auto")
+        docker = type("Runtime", (), {"name": "docker"})()
+        monkeypatch.setattr(
+            setup_mod,
+            "get_runtime",
+            lambda _instance=None, **_kwargs: docker,
+        )
+        monkeypatch.setattr(
+            setup_mod,
+            "probe_runtimes",
+            lambda: pytest.fail("explicit auto must not open the setup chooser"),
+        )
+
+        runtime = setup_mod._resolve_setup_runtime(None, interactive=True)
+
+        assert runtime.name == "docker"
 
 
 class TestScheduledCommands:
@@ -267,6 +417,29 @@ class TestSetupNaming:
         assert cfg.backup.interval_hours == 24
         assert cfg.backup.keep == 3
 
+    def test_known_runtime_conflict_fails_before_interactive_questions(
+        self, home, runner, monkeypatch
+    ):
+        import src.commands.setup as setup_mod
+
+        instance = im.create_instance("existing")
+        im.set_instance_runtime(instance, "docker")
+        monkeypatch.setattr(
+            setup_mod,
+            "_collect_general",
+            lambda _cfg: pytest.fail(
+                "known runtime conflicts must fail before wizard questions"
+            ),
+        )
+
+        result = runner.invoke(
+            main,
+            ["--runtime", "podman", "setup", "--name", "existing"],
+        )
+
+        assert result.exit_code == 1
+        assert "bound to docker, but podman was requested" in result.output
+
     def test_setup_without_start_still_materializes_compose(
         self, home, runner, no_docker, monkeypatch
     ):
@@ -311,6 +484,52 @@ class TestSetupNaming:
         assert generated == ["planned"]
         assert instance.config_path.is_file()
         assert instance.compose_path.read_text() == "services: {}\n"
+
+    def test_interactive_setup_resolves_entered_instance_before_runtime_choice(
+        self, home, runner, no_docker, monkeypatch
+    ):
+        import src.commands.setup as setup_mod
+
+        instance = im.create_instance("existing")
+        im.set_instance_runtime(instance, "docker")
+        docker = type("Runtime", (), {"name": "docker"})()
+        resolved = []
+
+        monkeypatch.setattr(setup_mod, "_collect_general", lambda cfg: cfg)
+        monkeypatch.setattr(
+            setup_mod.Prompt,
+            "ask",
+            lambda prompt, **_kwargs: (
+                "existing"
+                if prompt.startswith("Instance name")
+                else pytest.fail(f"unexpected prompt: {prompt}")
+            ),
+        )
+
+        def resolve_runtime(target, *, interactive):
+            resolved.append((target, interactive))
+            return docker
+
+        monkeypatch.setattr(setup_mod, "_resolve_setup_runtime", resolve_runtime)
+        monkeypatch.setattr(setup_mod, "_collect_ssl", lambda cfg: cfg)
+        monkeypatch.setattr(setup_mod, "_collect_databases", lambda cfg: cfg)
+        monkeypatch.setattr(
+            setup_mod, "_collect_watchtower", lambda cfg, _runtime: cfg
+        )
+        monkeypatch.setattr(
+            setup_mod, "_collect_backup", lambda cfg, _runtime: cfg
+        )
+        monkeypatch.setattr(
+            setup_mod, "_collect_optional_services", lambda cfg: cfg
+        )
+        monkeypatch.setattr(setup_mod.Confirm, "ask", lambda *args, **kwargs: False)
+
+        result = runner.invoke(main, ["setup"])
+
+        assert result.exit_code == 0, result.output
+        assert resolved == [(instance, True)]
+        assert im.get_instance_runtime(instance) == "docker"
+        assert set(im.get_registry_info()) == {"existing"}
 
     def test_invalid_manual_certificate_does_not_persist_or_schedule(
         self, home, runner, no_docker, monkeypatch
@@ -526,7 +745,9 @@ class TestSetupNaming:
         monkeypatch.setattr(
             setup_mod,
             "get_runtime",
-            lambda target=None: podman if target is not None else docker,
+            lambda target=None, **_kwargs: (
+                podman if target is not None else docker
+            ),
         )
 
         result = runner.invoke(
@@ -557,7 +778,7 @@ class TestSetupNaming:
             def __exit__(self, *exc_info):
                 state["locked"] = False
 
-        def get_runtime(target=None):
+        def get_runtime(target=None, **_kwargs):
             state["runtime_calls"] += 1
             if state["runtime_calls"] == 2:
                 assert state["locked"] is True
@@ -587,7 +808,9 @@ class TestSetupNaming:
         monkeypatch.setattr(
             setup_mod,
             "get_runtime",
-            lambda target=None: podman if target is not None else docker,
+            lambda target=None, **_kwargs: (
+                podman if target is not None else docker
+            ),
         )
 
         result = runner.invoke(
@@ -614,7 +837,11 @@ class TestSetupNaming:
         from src.core.config_manager import load_config
 
         podman = type("Runtime", (), {"name": "podman"})()
-        monkeypatch.setattr(setup_mod, "get_runtime", lambda target=None: podman)
+        monkeypatch.setattr(
+            setup_mod,
+            "get_runtime",
+            lambda target=None, **_kwargs: podman,
+        )
 
         result = runner.invoke(
             main,
@@ -664,7 +891,11 @@ class TestSetupNaming:
         from src.core.config_manager import load_config
 
         podman = type("Runtime", (), {"name": "podman"})()
-        monkeypatch.setattr(setup_mod, "get_runtime", lambda target=None: podman)
+        monkeypatch.setattr(
+            setup_mod,
+            "get_runtime",
+            lambda target=None, **_kwargs: podman,
+        )
         monkeypatch.setattr(
             setup_mod, "rootless_port_threshold", lambda runtime: 1024
         )
@@ -683,7 +914,11 @@ class TestSetupNaming:
         import src.commands.setup as setup_mod
 
         podman = type("Runtime", (), {"name": "podman"})()
-        monkeypatch.setattr(setup_mod, "get_runtime", lambda target=None: podman)
+        monkeypatch.setattr(
+            setup_mod,
+            "get_runtime",
+            lambda target=None, **_kwargs: podman,
+        )
         monkeypatch.setattr(
             setup_mod, "rootless_port_threshold", lambda runtime: 1024
         )
@@ -713,7 +948,11 @@ class TestSetupNaming:
         from src.core.config_manager import load_config
 
         podman = type("Runtime", (), {"name": "podman"})()
-        monkeypatch.setattr(setup_mod, "get_runtime", lambda target=None: podman)
+        monkeypatch.setattr(
+            setup_mod,
+            "get_runtime",
+            lambda target=None, **_kwargs: podman,
+        )
 
         result = runner.invoke(
             main,

@@ -10,7 +10,11 @@ from rich.panel import Panel
 
 from src.core import instance_manager
 from src.core.config_manager import config_exists, load_config
-from src.core.container_runtime import RuntimeSelectionError, get_runtime
+from src.core.container_runtime import (
+    RuntimeSelectionError,
+    get_runtime,
+    get_runtime_choice,
+)
 from src.core.secrets_manager import load_secrets
 from src.core.ssl import get_cert_info
 from src.utils.console import console, success, error, dim
@@ -143,7 +147,15 @@ def list_cmd():
             continue
 
         if not config_exists(ctx):
-            table.add_row(name, "-", "-", "-", "-", "[yellow]not configured[/yellow]", accessed)
+            table.add_row(
+                name,
+                "-",
+                "-",
+                "-",
+                _get_runtime_name(ctx),
+                "[yellow]not configured[/yellow]",
+                accessed,
+            )
             continue
 
         cfg = load_config(ctx)
@@ -174,12 +186,11 @@ def list_cmd():
 @instance.command()
 @click.argument("name")
 @click.option("--path", type=click.Path(), default=None, help="Custom parent directory.")
-@click.pass_context
-def create(ctx, name: str, path: str | None):
+def create(name: str, path: str | None):
     """Create a new instance."""
     try:
         runtime = None
-        if (ctx.obj or {}).get("runtime", "auto") != "auto":
+        if get_runtime_choice() != "auto":
             runtime = get_runtime()
 
         created = instance_manager.create_instance(
@@ -240,7 +251,10 @@ def info(name: str):
     console.print(Panel(f"[bold cyan]{name}[/bold cyan]", subtitle=str(ctx.root)))
 
     if not config_exists(ctx):
-        console.print("[yellow]Not configured. Run: easy-opal -i {name} setup[/yellow]")
+        console.print(f"[bold]Runtime:[/bold] {_get_runtime_name(ctx)}")
+        console.print(
+            f"[yellow]Not configured. Run: easy-opal -i {name} setup[/yellow]"
+        )
         return
 
     cfg = load_config(ctx)

@@ -4,7 +4,9 @@ import json
 import os
 import re
 import shutil
+import tempfile
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -34,6 +36,22 @@ def _registry_path() -> Path:
 # ── Registry ─────────────────────────────────────────────────────────────────
 
 
+@contextmanager
+def _registry_lock():
+    """Serialize cross-process registry read-modify-write transactions."""
+    import fcntl
+
+    path = get_home() / ".registry.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a+") as lock_file:
+        os.chmod(path, 0o600)
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
 def _load_registry() -> dict:
     path = _registry_path()
     if not path.exists():
@@ -47,7 +65,22 @@ def _load_registry() -> dict:
 def _save_registry(registry: dict) -> None:
     path = _registry_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(registry, indent=2) + "\n")
+    rendered = (json.dumps(registry, indent=2) + "\n").encode()
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=path.parent
+    )
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = -1
+            stream.write(rendered)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        Path(temporary).unlink(missing_ok=True)
 
 
 def _now_iso() -> str:
@@ -70,8 +103,8 @@ def _read_stack_name(path: Path) -> str | None:
         return None
 
 
-def sync_registry() -> dict:
-    """Sync registry with filesystem. Returns the synced registry.
+def _sync_registry_unlocked() -> dict:
+    """Sync registry with the filesystem while holding the registry lock.
 
     - Removes entries whose directories no longer exist.
     - Discovers directories not yet in the registry.
@@ -116,29 +149,39 @@ def sync_registry() -> dict:
     return registry
 
 
+def sync_registry() -> dict:
+    """Synchronize registry metadata with the filesystem."""
+    with _registry_lock():
+        return _sync_registry_unlocked()
+
+
 def _touch_instance(name: str) -> None:
     """Update last_accessed timestamp for an instance."""
-    registry = _load_registry()
-    if name in registry.get("instances", {}):
+    with _registry_lock():
+        registry = _load_registry()
+        if name not in registry.get("instances", {}):
+            return
         registry["instances"][name]["last_accessed"] = _now_iso()
         _save_registry(registry)
 
 
 def _register_instance(name: str, path: Path, stack_name: str | None = None) -> None:
-    registry = _load_registry()
-    registry.setdefault("instances", {})[name] = {
-        "path": str(path),
-        "created_at": _now_iso(),
-        "last_accessed": _now_iso(),
-        "stack_name": stack_name,
-    }
-    _save_registry(registry)
+    with _registry_lock():
+        registry = _load_registry()
+        registry.setdefault("instances", {})[name] = {
+            "path": str(path),
+            "created_at": _now_iso(),
+            "last_accessed": _now_iso(),
+            "stack_name": stack_name,
+        }
+        _save_registry(registry)
 
 
 def _unregister_instance(name: str) -> None:
-    registry = _load_registry()
-    registry.get("instances", {}).pop(name, None)
-    _save_registry(registry)
+    with _registry_lock():
+        registry = _load_registry()
+        registry.get("instances", {}).pop(name, None)
+        _save_registry(registry)
 
 
 def _instance_name(instance: InstanceContext | str) -> str:
@@ -153,18 +196,43 @@ def get_instance_runtime(instance: InstanceContext | str) -> str | None:
     return meta.get("runtime") if meta else None
 
 
+def get_default_runtime() -> str:
+    """Return the host-local preference used when no binding applies."""
+    runtime = _load_registry().get("default_runtime", "auto")
+    if runtime not in ("auto", "docker", "podman"):
+        raise ValueError(
+            f"Unsupported default container runtime in registry: {runtime}"
+        )
+    return runtime
+
+
+def set_default_runtime(runtime: str) -> None:
+    """Persist the host-local runtime preference; ``auto`` clears it."""
+    if runtime not in ("auto", "docker", "podman"):
+        raise ValueError(f"Unsupported default container runtime: {runtime}")
+
+    with _registry_lock():
+        registry = _load_registry()
+        if runtime == "auto":
+            registry.pop("default_runtime", None)
+        else:
+            registry["default_runtime"] = runtime
+        _save_registry(registry)
+
+
 def set_instance_runtime(instance: InstanceContext | str, runtime: str) -> None:
     """Persist an instance's host-local container runtime binding."""
     if runtime not in ("docker", "podman"):
         raise ValueError(f"Unsupported container runtime: {runtime}")
 
     name = _instance_name(instance)
-    registry = sync_registry()
-    meta = registry.get("instances", {}).get(name)
-    if meta is None:
-        raise ValueError(f"Instance '{name}' not found")
-    meta["runtime"] = runtime
-    _save_registry(registry)
+    with _registry_lock():
+        registry = _sync_registry_unlocked()
+        meta = registry.get("instances", {}).get(name)
+        if meta is None:
+            raise ValueError(f"Instance '{name}' not found")
+        meta["runtime"] = runtime
+        _save_registry(registry)
 
 
 # ── Validation ───────────────────────────────────────────────────────────────
@@ -449,7 +517,8 @@ def is_stack_name_taken(stack_name: str, exclude_instance: str | None = None) ->
 
 def update_stack_name(name: str, stack_name: str) -> None:
     """Update the stack_name metadata for an instance."""
-    registry = _load_registry()
-    if name in registry.get("instances", {}):
-        registry["instances"][name]["stack_name"] = stack_name
-        _save_registry(registry)
+    with _registry_lock():
+        registry = _load_registry()
+        if name in registry.get("instances", {}):
+            registry["instances"][name]["stack_name"] = stack_name
+            _save_registry(registry)

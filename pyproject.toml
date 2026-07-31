@@ -1,6 +1,6 @@
 [project]
 name = "easy-opal"
-version = "2.3.0"
+version = "2.4.0"
 description = "Deploy and manage OBiBa Opal and Armadillo DataSHIELD environments with Docker or Podman."
 readme = "README.md"
 license = "MIT"
