@@ -15,7 +15,10 @@ from src.core.nginx import generate_nginx_config
 from src.core.container_runtime import (
     RuntimeSelectionError,
     get_runtime,
+    get_runtime_selection,
+    probe_runtimes,
     rootless_port_threshold,
+    set_requested_runtime,
     validate_runtime_config,
 )
 from src.core.docker import (
@@ -235,6 +238,45 @@ def _manual_certificate_sources(
     return _validate_manual_certificate_pair(cert_path or "", key_path or "")
 
 
+def _resolve_setup_runtime(
+    instance: InstanceContext | None, *, interactive: bool
+):
+    """Resolve runtime, prompting only for an unconfigured unbound target."""
+    choice, explicit = get_runtime_selection()
+    if not interactive or choice != "auto" or explicit:
+        return get_runtime(instance, selection=(choice, explicit))
+
+    if instance is not None:
+        from src.core.instance_manager import get_instance_runtime
+
+        if get_instance_runtime(instance) or instance.config_path.exists():
+            return get_runtime(instance, selection=(choice, explicit))
+
+    available, failures = probe_runtimes()
+    if not available:
+        detail = "; ".join(
+            f"{name}: {failure}" for name, failure in failures.items()
+        )
+        raise RuntimeSelectionError(
+            "No usable container runtime with Compose was found. " + detail
+        )
+
+    choices = [name for name in ("docker", "podman") if name in available]
+    if len(choices) == 1:
+        selected = choices[0]
+        info(f"Using the only available container runtime: {selected}.")
+    else:
+        info("Both Docker and Podman are usable.")
+        selected = Prompt.ask(
+            "Container runtime for this instance",
+            choices=choices,
+            default="docker",
+        )
+
+    set_requested_runtime(selected)
+    return available[selected]
+
+
 @click.command()
 @click.option("--name", help="Instance name (also used as the Compose stack name).")
 @click.option("--stack-name", help="Alias of --name (kept for compatibility).")
@@ -284,6 +326,7 @@ def setup(ctx, name, stack_name, hosts, port, http_port, ssl_strategy, ssl_email
     """Configure a new easy-opal deployment."""
     instance: InstanceContext | None = ctx.obj.get("instance")
     desired_name = name or stack_name or ctx.obj.get("setup_name")
+    is_interactive = not yes
 
     display_header()
 
@@ -297,10 +340,16 @@ def setup(ctx, name, stack_name, hosts, port, http_port, ssl_strategy, ssl_email
         except ValueError:
             pass
 
-    try:
-        runtime = get_runtime(instance)
-    except RuntimeSelectionError as exc:
-        raise click.ClickException(str(exc)) from exc
+    # A target known up front can be validated before asking configuration
+    # questions. An interactively entered name is resolved later, once known.
+    runtime = None
+    if instance is not None:
+        try:
+            runtime = _resolve_setup_runtime(
+                instance, interactive=is_interactive
+            )
+        except RuntimeSelectionError as exc:
+            raise click.ClickException(str(exc)) from exc
 
     config = OpalConfig()
 
@@ -314,47 +363,56 @@ def setup(ctx, name, stack_name, hosts, port, http_port, ssl_strategy, ssl_email
     if flavor:
         config.flavor = flavor
 
-    is_interactive = not yes
-
     if is_interactive:
         info("Welcome to the easy-opal setup wizard!\n")
         # Step 1: flavor and versions (before auto-create so we know the flavor)
         config = _collect_general(config)
 
-    # Resolve the target instance: create a new one (named after the stack) or
-    # reconfigure an existing one. The instance name is the Compose stack name.
+    # Resolve the target name before runtime selection, but do not create
+    # anything yet. The operator may enter the name of an existing instance,
+    # whose binding must win over a new-instance runtime choice.
+    chosen = desired_name
     if instance is None:
         from src.core.instance_manager import (
-            create_instance,
             get_instance,
             next_available_name,
-            set_instance_runtime,
         )
-        chosen = desired_name
+
         if not chosen:
             default_name = next_available_name(config.flavor)
             chosen = (
-                Prompt.ask("Instance name (also the Compose stack name)", default=default_name)
+                Prompt.ask(
+                    "Instance name (also the Compose stack name)",
+                    default=default_name,
+                )
                 if is_interactive else default_name
             )
-        created = False
         try:
-            instance = get_instance(chosen)  # already exists -> reconfigure it
+            instance = get_instance(chosen)
         except ValueError:
-            try:
-                instance = create_instance(chosen)
-            except ValueError as e:
-                error(str(e))
-                return
-            created = True
-            info(f"Created instance '{instance.name}'.")
-        if created:
-            set_instance_runtime(instance, runtime.name)
-        else:
-            try:
-                runtime = get_runtime(instance)
-            except RuntimeSelectionError as exc:
-                raise click.ClickException(str(exc)) from exc
+            pass
+
+    if runtime is None:
+        try:
+            runtime = _resolve_setup_runtime(
+                instance, interactive=is_interactive
+            )
+        except RuntimeSelectionError as exc:
+            raise click.ClickException(str(exc)) from exc
+
+    # A new instance is created only after its runtime has been selected and
+    # validated, so cancelling the chooser leaves no partial registry entry.
+    if instance is None:
+        from src.core.instance_manager import create_instance, set_instance_runtime
+
+        assert chosen is not None
+        try:
+            instance = create_instance(chosen)
+        except ValueError as exc:
+            error(str(exc))
+            return
+        info(f"Created instance '{instance.name}'.")
+        set_instance_runtime(instance, runtime.name)
 
     try:
         ctx.with_resource(InstanceLock(instance))

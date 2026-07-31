@@ -26,25 +26,55 @@ validate that host's port policy separately.
 
 ### Choosing Docker or Podman
 
-Use `--runtime` before the command when you want an explicit runtime:
+Choose and save the default for new instances with either the interactive
+selector or its non-interactive form:
+
+```bash
+easy-opal runtime status
+easy-opal runtime select                 # interactive wizard
+easy-opal runtime select podman          # non-interactive
+easy-opal runtime select docker
+easy-opal runtime select auto            # clear the preference
+```
+
+The saved preference is host-local and is consulted whenever no authoritative
+instance binding applies, principally for new or not-yet-configured instances
+and global runtime checks. It never changes an existing instance's binding.
+`runtime select` does not move or rebind containers, volumes, or data and is
+not a migration command. During an interactive `easy-opal setup`, a new or
+not-yet-configured unbound target asks which engine to use when there is no
+saved or explicit selection and both complete runtime pairs are usable. If only
+one is usable, it selects and reports that runtime. `setup --yes` never prompts;
+use one of the non-interactive selections above or `--runtime` when a specific
+choice is required.
+
+Use `--runtime` before a command as a strong request for that invocation:
 
 ```bash
 easy-opal --runtime podman setup
-easy-opal --runtime docker up
+easy-opal --runtime docker -i docker-production up  # verifies this binding
 ```
 
-`EASY_OPAL_RUNTIME=podman` provides the same selection for scripts. With the
-default `auto` mode, easy-opal reuses the runtime already bound to an instance;
-for a new instance it checks complete runtime + Compose pairs. Installing the
-other runtime later does not silently move an existing instance to it.
+`EASY_OPAL_RUNTIME=podman` provides the same strong request for scripts. A
+successful runtime resolution for an unbound instance records the engine as
+that instance's persistent binding; it does not change the saved host default.
+For new instances the precedence is `--runtime`, environment variable, saved
+preference, then `auto`. A bound instance always reuses its engine; an explicit
+contradictory selection fails instead of switching it. With no selection,
+automatic resolution checks complete runtime + Compose pairs and uses Docker as
+the deterministic tie-breaker in non-interactive operation. Explicit
+`--runtime auto` bypasses the saved preference but still reuses an existing
+instance binding. Installing the other runtime later does not silently move an
+existing instance to it.
 
 The binding records the engine family, not a remote endpoint or storage
 fingerprint. Keep `DOCKER_CONTEXT`/`DOCKER_HOST` or the active Podman connection
 and rootless/rootful mode stable for an existing instance. To change them,
 create a new instance on the target context and transfer the required data; do
-not rebind the old instance in place. The built-in backup/restore covers the
-main application and configured databases, but not every ancillary service
-volume, so review the backup scope below before a production migration.
+not rebind the old instance in place. The built-in backup/restore covers Opal
+`/srv` or Armadillo `/data`, MongoDB for Opal, and configured internal SQL
+databases. It is not a generic volume copy and excludes ancillary state, so
+review the backup scope below before a production migration.
 
 For production Podman hosts, reboot persistence is a host responsibility.
 `restart: always` needs Podman's restart integration to run after boot. A
@@ -84,13 +114,15 @@ easy-opal setup
 
 The wizard will ask you for:
 
-1. **Stack name** — identifies this deployment in the selected runtime (e.g., `my-opal`)
-2. **Service versions** — Opal and MongoDB image tags (default: `latest`)
-3. **SSL strategy** — how to handle HTTPS (self-signed for dev, Let's Encrypt for production)
-4. **Databases** — optional PostgreSQL, MySQL, or MariaDB instances
-5. **Automatic updates** — optional host-scheduled, health-aware image updates
-6. **Agate / Mica** — optional authentication server and data portal
-7. **Admin password** — enter your own or let it generate a secure one
+1. **Deployment type and versions** — Opal or Armadillo and their image tags
+2. **Stack name** — identifies this deployment (e.g., `my-opal`)
+3. **Container runtime** — Docker or Podman, when both are usable and no preference exists
+4. **SSL strategy** — how to handle HTTPS (self-signed for dev, Let's Encrypt for production)
+5. **Databases** — optional PostgreSQL, MySQL, or MariaDB instances
+6. **Automatic updates** — optional host-scheduled, health-aware image updates
+7. **Automated backups** — optional host-scheduled application/database backups
+8. **Optional services** — Agate/Mica for Opal or Keycloak for Armadillo
+9. **Admin password** — enter your own or let it generate a secure one
 
 For scripting or CI/CD, pass everything as flags to skip the wizard entirely:
 
@@ -371,12 +403,13 @@ easy-opal backup restore backup.tar.gz
 - Armadillo application data (`/data`) for the Armadillo flavor
 - PostgreSQL/MySQL/MariaDB dumps for internal containers managed by easy-opal
 - Configuration file (`config.json`) as a reference; restore does not apply it
-- Manifest with metadata (stack name, Opal version, timestamp)
+- Manifest with metadata (stack name, flavor/application version, timestamp)
 
 **What's NOT included (by design):**
 - Passwords and secrets (`secrets.env`) — never shipped in backups
-- SSL certificates — regenerated on the target machine
-- Generated Compose file — regenerated from config
+- SSL certificates — restore does not create them; target setup must do so
+- Generated Compose file — restore does not apply the archived config or
+  regenerate Compose; target setup must prepare it
 - External PostgreSQL/MySQL/MariaDB databases
 - Ancillary state such as Rock volumes, the Agate bind directory, or an
   Elasticsearch index
@@ -555,7 +588,17 @@ This auto-detects how easy-opal was installed and uses the appropriate update me
 
 | Option | Description |
 |--------|-------------|
-| `--runtime auto\|docker\|podman` | Select the runtime before the command (default: `auto`) |
+| `--runtime docker\|podman` | Require that runtime for one invocation; a conflicting instance binding fails |
+| `--runtime auto` | Bypass the saved preference; auto-detect a new/unconfigured target or safely identify legacy ownership |
+
+Persistent selection commands:
+
+| Command | Description |
+|---------|-------------|
+| `easy-opal runtime status` | Probe Docker and Podman without changing any binding |
+| `easy-opal runtime select` | Interactively select the default for new instances |
+| `easy-opal runtime select docker\|podman` | Select the default non-interactively after validating it |
+| `easy-opal runtime select auto` | Clear the saved preference and restore automatic selection |
 
 ## All setup flags
 
