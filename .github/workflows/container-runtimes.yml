@@ -8,8 +8,8 @@ jobs:
   unit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9
       - run: uv sync --frozen
       - run: uv run pytest -q --ignore=tests/test_selenium_login.py
 
@@ -22,8 +22,8 @@ jobs:
     env:
       TEST_RUNTIME: ${{ matrix.runtime }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9
       - name: Configure temporary paths
         run: |
           echo "EASY_OPAL_HOME=$RUNNER_TEMP/easy-opal" >> "$GITHUB_ENV"

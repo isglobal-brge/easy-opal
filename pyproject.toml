@@ -38,6 +38,11 @@ dependencies = [
     "pydantic>=2.0",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/isglobal-brge/easy-opal"
 Documentation = "https://easy-opal.github.io"
