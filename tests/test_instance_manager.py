@@ -1,6 +1,7 @@
 """Registry / naming logic: instance name == stack name, config.json as source of truth."""
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -79,11 +80,44 @@ class TestSync:
         shutil.rmtree(im.get_home() / "instances" / "temp")
         assert "temp" not in im.list_instances()
 
+    def test_runtime_binding_is_host_local_registry_metadata(self, home):
+        ctx = im.create_instance("bound")
+        _write_config(ctx.root, "bound")
+        im.set_instance_runtime(ctx, "podman")
+
+        assert im.get_instance_runtime(ctx) == "podman"
+        assert im.get_registry_info()["bound"]["runtime"] == "podman"
+        assert "runtime" not in json.loads(ctx.config_path.read_text())
+
+    def test_runtime_binding_rejects_unknown_runtime(self, home):
+        ctx = im.create_instance("bound")
+        with pytest.raises(ValueError, match="Unsupported container runtime"):
+            im.set_instance_runtime(ctx, "containerd")
+
+
+class TestLock:
+    def test_wait_timeout_is_bounded_and_reports_expiry(self, home):
+        ctx = im.create_instance("locked")
+
+        with im.InstanceLock(ctx):
+            started = time.monotonic()
+            with pytest.raises(RuntimeError, match="remained locked"):
+                with im.InstanceLock(ctx, timeout_seconds=0.02):
+                    pass
+            elapsed = time.monotonic() - started
+
+        assert 0.015 <= elapsed < 1
+
+    def test_negative_wait_timeout_is_rejected(self, home):
+        ctx = im.create_instance("locked")
+
+        with pytest.raises(ValueError, match="cannot be negative"):
+            im.InstanceLock(ctx, timeout_seconds=-1)
+
 
 class TestRemove:
     def test_remove_deletes_dir_and_is_not_rediscovered(self, home):
         ctx = im.create_instance("gone")
-        _write_config(ctx.root, "gone")  # no compose file -> no Docker needed
         im.remove_instance("gone", delete_data=False)
         assert "gone" not in im.get_registry_info()
         assert not ctx.root.exists()
@@ -91,11 +125,132 @@ class TestRemove:
 
     def test_remove_delete_data_also_removes_dir(self, home):
         ctx = im.create_instance("gone2")
-        _write_config(ctx.root, "gone2")
         im.remove_instance("gone2", delete_data=True)
         assert "gone2" not in im.get_registry_info()
         assert not ctx.root.exists()
 
+    def test_remove_preserves_configured_instance_when_compose_is_missing(self, home):
+        ctx = im.create_instance("incomplete")
+        _write_config(ctx.root, "incomplete")
+        data_file = ctx.data_dir / "important.txt"
+        data_file.write_text("keep")
+
+        with pytest.raises(RuntimeError, match="Compose file is missing"):
+            im.remove_instance("incomplete", delete_data=True)
+
+        assert ctx.config_path.exists()
+        assert data_file.read_text() == "keep"
+        assert "incomplete" in im.get_registry_info()
+
     def test_remove_missing_raises(self, home):
         with pytest.raises(ValueError):
             im.remove_instance("nope")
+
+    def test_remove_uses_bound_podman_runtime(self, home, monkeypatch):
+        from src.core import container_runtime as cr
+
+        ctx = im.create_instance("podman-study")
+        _write_config(ctx.root, "podman-stack")
+        ctx.compose_path.write_text("services: {}\n")
+        im.set_instance_runtime(ctx, "podman")
+        monkeypatch.setattr(cr, "_requested_runtime", None)
+        monkeypatch.delenv("EASY_OPAL_RUNTIME", raising=False)
+        monkeypatch.setattr(
+            cr.shutil,
+            "which",
+            lambda command: "/usr/bin/podman-compose"
+            if command == "podman-compose"
+            else None,
+        )
+        calls = []
+
+        def fake_run(command, **kwargs):
+            import subprocess
+
+            calls.append(command)
+            if command == ["/usr/bin/podman-compose", "version"]:
+                return subprocess.CompletedProcess(
+                    command, 0, "podman-compose version 1.6.0\n", ""
+                )
+            if command == ["podman", "--version"]:
+                return subprocess.CompletedProcess(
+                    command, 0, "podman version 4.6.0\n", ""
+                )
+            if command == [
+                "podman", "info", "--format", "{{.Version.Version}}"
+            ]:
+                return subprocess.CompletedProcess(command, 0, "4.6.0\n", "")
+            if command == ["podman", "compose", "up", "--help"]:
+                return subprocess.CompletedProcess(
+                    command, 0, "--wait --wait-timeout\n", ""
+                )
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        monkeypatch.setattr(cr.subprocess, "run", fake_run)
+
+        im.remove_instance("podman-study", delete_data=True)
+
+        assert calls[-1] == [
+            "podman",
+            "compose",
+            "--project-name",
+            "podman-stack",
+            "-f",
+            str(ctx.compose_path),
+            "down",
+            "--remove-orphans",
+            "-v",
+        ]
+        assert not ctx.root.exists()
+
+    def test_remove_preserves_instance_when_compose_down_fails(self, home, monkeypatch):
+        from src.core import container_runtime as cr
+
+        ctx = im.create_instance("keep-me")
+        _write_config(ctx.root, "keep-stack")
+        ctx.compose_path.write_text("services: {}\n")
+        data_file = ctx.data_dir / "important.txt"
+        data_file.write_text("keep")
+        im.set_instance_runtime(ctx, "podman")
+        monkeypatch.setattr(cr, "_requested_runtime", None)
+        monkeypatch.delenv("EASY_OPAL_RUNTIME", raising=False)
+        monkeypatch.setattr(
+            cr.shutil,
+            "which",
+            lambda command: "/usr/bin/podman-compose"
+            if command == "podman-compose"
+            else None,
+        )
+
+        def fake_run(command, **kwargs):
+            import subprocess
+
+            if command == ["/usr/bin/podman-compose", "version"]:
+                return subprocess.CompletedProcess(
+                    command, 0, "podman-compose version 1.6.0\n", ""
+                )
+            if command == ["podman", "--version"]:
+                return subprocess.CompletedProcess(
+                    command, 0, "podman version 4.6.0\n", ""
+                )
+            if command == [
+                "podman", "info", "--format", "{{.Version.Version}}"
+            ]:
+                return subprocess.CompletedProcess(command, 0, "4.6.0\n", "")
+            if command == ["podman", "compose", "up", "--help"]:
+                return subprocess.CompletedProcess(
+                    command, 0, "--wait --wait-timeout\n", ""
+                )
+            if "down" in command:
+                return subprocess.CompletedProcess(command, 23, b"", b"teardown failed")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        monkeypatch.setattr(cr.subprocess, "run", fake_run)
+
+        with pytest.raises(RuntimeError, match="data were preserved"):
+            im.remove_instance("keep-me", delete_data=True)
+
+        assert ctx.root.exists()
+        assert ctx.compose_path.exists()
+        assert data_file.read_text() == "keep"
+        assert "keep-me" in im.get_registry_info()

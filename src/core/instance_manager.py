@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -56,7 +57,7 @@ def _now_iso() -> str:
 def _read_stack_name(path: Path) -> str | None:
     """Read stack_name from an instance's config.json without side effects.
 
-    config.json is the source of truth for the Docker Compose project name; the
+    config.json is the source of truth for the Compose project name; the
     registry only mirrors it. Reading raw JSON avoids load_config()'s side effect
     of creating a default config for unconfigured directories.
     """
@@ -75,7 +76,7 @@ def sync_registry() -> dict:
     - Removes entries whose directories no longer exist.
     - Discovers directories not yet in the registry.
     - Backfills/refreshes each entry's stack_name from its config.json so the
-      registry never disagrees with the real Docker project name.
+      registry never disagrees with the real Compose project name.
     """
     registry = _load_registry()
     instances = registry.setdefault("instances", {})
@@ -140,6 +141,32 @@ def _unregister_instance(name: str) -> None:
     _save_registry(registry)
 
 
+def _instance_name(instance: InstanceContext | str) -> str:
+    return instance.name if isinstance(instance, InstanceContext) else instance
+
+
+def get_instance_runtime(instance: InstanceContext | str) -> str | None:
+    """Return the container runtime bound to an instance, if any."""
+    name = _instance_name(instance)
+    registry = sync_registry()
+    meta = registry.get("instances", {}).get(name)
+    return meta.get("runtime") if meta else None
+
+
+def set_instance_runtime(instance: InstanceContext | str, runtime: str) -> None:
+    """Persist an instance's host-local container runtime binding."""
+    if runtime not in ("docker", "podman"):
+        raise ValueError(f"Unsupported container runtime: {runtime}")
+
+    name = _instance_name(instance)
+    registry = sync_registry()
+    meta = registry.get("instances", {}).get(name)
+    if meta is None:
+        raise ValueError(f"Instance '{name}' not found")
+    meta["runtime"] = runtime
+    _save_registry(registry)
+
+
 # ── Validation ───────────────────────────────────────────────────────────────
 
 
@@ -163,24 +190,40 @@ LOCK_TIMEOUT_SECONDS = 600  # 10 minutes
 class InstanceLock:
     """File-based lock using fcntl for atomic locking on Unix."""
 
-    def __init__(self, ctx: InstanceContext):
+    def __init__(self, ctx: InstanceContext, *, timeout_seconds: float = 0):
+        if timeout_seconds < 0:
+            raise ValueError("Lock timeout cannot be negative")
         self.lock_path = ctx.root / ".lock"
+        self.timeout_seconds = timeout_seconds
         self._fd = None
 
     def __enter__(self):
         import fcntl
 
         self.lock_path.parent.mkdir(parents=True, exist_ok=True)
-        self._fd = open(self.lock_path, "w")
-        try:
-            fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            self._fd.close()
-            self._fd = None
-            raise RuntimeError(
-                f"Instance is locked by another process. "
-                f"If this is stale, delete {self.lock_path}"
-            )
+        self._fd = open(self.lock_path, "a+")
+        os.chmod(self.lock_path, 0o600)
+        deadline = time.monotonic() + self.timeout_seconds
+        while True:
+            try:
+                fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    self._fd.close()
+                    self._fd = None
+                    if self.timeout_seconds:
+                        raise RuntimeError(
+                            "Instance remained locked by another process for "
+                            f"{self.timeout_seconds:g} seconds."
+                        )
+                    raise RuntimeError(
+                        "Instance is locked by another process; try again later."
+                    )
+                time.sleep(min(0.2, remaining))
+        self._fd.seek(0)
+        self._fd.truncate()
         self._fd.write(str(os.getpid()))
         self._fd.flush()
         return self
@@ -192,11 +235,21 @@ class InstanceLock:
             fcntl.flock(self._fd, fcntl.LOCK_UN)
             self._fd.close()
             self._fd = None
-        if self.lock_path.exists():
-            try:
-                self.lock_path.unlink()
-            except OSError:
-                pass
+
+
+def instance_is_locked(ctx: InstanceContext) -> bool:
+    """Return whether another process currently holds the instance lock."""
+    import fcntl
+
+    lock_path = ctx.root / ".lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a+") as lock_file:
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return True
+        fcntl.flock(lock_file, fcntl.LOCK_UN)
+    return False
 
 
 # ── CRUD ─────────────────────────────────────────────────────────────────────
@@ -217,7 +270,7 @@ def get_registry_info() -> dict[str, dict]:
 def create_instance(name: str, path: Path | None = None) -> InstanceContext:
     """Create a new instance. Validates name, checks collisions, registers it.
 
-    The instance name doubles as the Docker stack name, so it must not collide
+    The instance name doubles as the Compose stack name, so it must not collide
     with another instance's stack name either.
     """
     err = validate_name(name)
@@ -246,32 +299,74 @@ def create_instance(name: str, path: Path | None = None) -> InstanceContext:
 
 
 def remove_instance(name: str, delete_data: bool = False) -> None:
-    """Remove an instance: stop containers, optionally delete volumes and data."""
-    import subprocess
+    """Remove an instance while excluding all other instance operations."""
+    registry = sync_registry()
+    meta = registry.get("instances", {}).get(name)
+    if not meta:
+        raise ValueError(f"Instance '{name}' not found")
+    ctx = InstanceContext(name=name, root=Path(meta["path"]))
+    with InstanceLock(ctx):
+        _remove_instance_locked(name, delete_data)
 
+
+def _remove_instance_locked(name: str, delete_data: bool = False) -> None:
+    """Stop and remove an instance after its lock has been acquired."""
     registry = sync_registry()
     meta = registry.get("instances", {}).get(name)
     if not meta:
         raise ValueError(f"Instance '{name}' not found")
 
     root = Path(meta["path"])
+    ctx = InstanceContext(name=name, root=root)
     compose_file = root / "docker-compose.yml"
-    # config.json is the authoritative source for the Docker project name;
+    if ctx.config_path.exists() and not compose_file.is_file():
+        raise RuntimeError(
+            f"Refusing to remove configured instance '{name}' because its "
+            "generated Compose file is missing. No containers, schedules, "
+            "instance files, or registry metadata were removed. Regenerate "
+            "the Compose file with 'easy-opal plan' or 'easy-opal setup', then "
+            "retry."
+        )
+    # config.json is the authoritative source for the Compose project name;
     # fall back to the registry mirror, then the instance name. Never skip
     # teardown just because the registry's cached stack_name is missing.
     stack_name = _read_stack_name(root) or meta.get("stack_name") or name
 
     # Stop containers (and remove volumes if delete_data)
     if compose_file.exists():
-        down_args = ["docker", "compose", "--project-name", stack_name,
-                     "-f", str(compose_file), "down"]
+        from src.core.container_runtime import get_runtime
+
+        down_args = ["down", "--remove-orphans"]
         if delete_data:
             down_args.append("-v")
-        subprocess.run(down_args, capture_output=True, check=False, timeout=120)
+        runtime = get_runtime(ctx)
+        result = runtime.compose(
+            down_args,
+            ctx,
+            project_name=stack_name,
+            capture_output=True,
+            check=False,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            detail = result.stderr or ""
+            if isinstance(detail, bytes):
+                detail = detail.decode(errors="replace")
+            detail = detail.strip()
+            suffix = f": {detail}" if detail else ""
+            raise RuntimeError(
+                f"Failed to stop instance '{name}' with {runtime.name} Compose "
+                f"(exit code {result.returncode}){suffix}. "
+                "The instance directory, registry entry, and data were preserved."
+            )
+
+    from src.core.host_jobs import remove_all_schedules
+
+    remove_all_schedules(ctx)
 
     # Remove the instance directory entirely so it is not rediscovered on the
-    # next sync. Docker named volumes are preserved unless --delete-data added
-    # the -v flag to the compose down above.
+    # next sync. Named volumes are preserved unless --delete-data added the -v
+    # flag to the Compose down above.
     if root.exists():
         shutil.rmtree(root)
 

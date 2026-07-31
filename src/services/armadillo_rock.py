@@ -2,6 +2,7 @@
 
 from src.models.config import OpalConfig, ProfileConfig
 from src.models.instance import InstanceContext
+from src.utils.images import qualify_image
 
 
 class ArmadilloRockService:
@@ -21,7 +22,7 @@ class ArmadilloRockService:
 
         return {
             p.name: {
-                "image": f"{p.image}:{p.tag}",
+                "image": qualify_image(f"{p.image}:{p.tag}"),
                 "container_name": f"{config.stack_name}-{p.name}",
                 "platform": "linux/amd64",
                 "restart": "always",

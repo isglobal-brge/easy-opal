@@ -1,14 +1,18 @@
-"""Diagnostic of easy-opal itself: permissions, config, Docker, registry health."""
+"""Diagnostic of easy-opal itself: permissions, config, runtime, registry health."""
 
 import os
-import shutil
-import subprocess
 
 import click
 
 from src.models.instance import InstanceContext
-from src.core.instance_manager import get_home, sync_registry, get_registry_info
+from src.core.instance_manager import (
+    get_home,
+    get_instance_runtime,
+    instance_is_locked,
+    sync_registry,
+)
 from src.core.config_manager import load_config, config_exists
+from src.core.container_runtime import RuntimeSelectionError, get_runtime
 from src.core.ssl import get_cert_info
 from src.core.secrets_manager import load_secrets
 from src.utils.console import console, get_instances
@@ -25,23 +29,24 @@ class Check:
         return {"ok": "[green]OK[/green]", "warn": "[yellow]WARN[/yellow]", "fail": "[red]FAIL[/red]"}[self.status]
 
 
-def _check_docker() -> Check:
+def _check_container_runtime() -> Check:
     try:
-        r = subprocess.run(["docker", "compose", "version"], capture_output=True, text=True, check=False)
-        if r.returncode == 0:
-            ver = r.stdout.strip().split()[-1] if r.stdout.strip() else "?"
-            return Check("Docker Compose", "ok", f"v{ver}")
-        return Check("Docker Compose", "fail", "Not available")
-    except FileNotFoundError:
-        return Check("Docker Compose", "fail", "Docker not installed")
+        runtime = get_runtime()
+        return Check("Container runtime", "ok", f"{runtime.name} (service reachable)")
+    except RuntimeSelectionError as exc:
+        return Check("Container runtime", "fail", str(exc))
 
 
-def _check_docker_daemon() -> Check:
+def _check_compose() -> Check:
     try:
-        subprocess.run(["docker", "ps"], capture_output=True, check=True)
-        return Check("Docker daemon", "ok", "Running")
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return Check("Docker daemon", "fail", "Not running")
+        runtime = get_runtime()
+        detail = " ".join(runtime.compose_command)
+        provider = runtime.env.get("PODMAN_COMPOSE_PROVIDER")
+        if provider:
+            detail += f" (provider: {provider})"
+        return Check("Compose", "ok", detail)
+    except RuntimeSelectionError as exc:
+        return Check("Compose", "fail", str(exc))
 
 
 def _check_home() -> Check:
@@ -77,6 +82,34 @@ def _check_instance(instance: InstanceContext) -> list[Check]:
     else:
         checks.append(Check("Config", "warn", "No config (run setup)"))
         return checks
+
+    if get_instance_runtime(instance) is None:
+        checks.append(
+            Check(
+                "Runtime",
+                "warn",
+                "Unbound legacy instance; select once with --runtime docker|podman",
+            )
+        )
+    else:
+        try:
+            runtime = get_runtime(instance)
+            compose = " ".join(runtime.compose_command)
+            provider = runtime.env.get("PODMAN_COMPOSE_PROVIDER")
+            if provider:
+                compose += f" (provider: {provider})"
+            checks.append(Check("Runtime", "ok", f"{runtime.name}; Compose: {compose}"))
+            if runtime.name == "podman":
+                checks.append(
+                    Check(
+                        "Reboot persistence",
+                        "warn",
+                        "Not managed by easy-opal; verify podman-restart.service "
+                        "and user lingering for rootless deployments",
+                    )
+                )
+        except RuntimeSelectionError as exc:
+            checks.append(Check("Runtime", "fail", str(exc)))
 
     # Secrets
     secrets = load_secrets(instance)
@@ -125,11 +158,10 @@ def _check_instance(instance: InstanceContext) -> list[Check]:
         checks.append(Check("Compose", "warn", "Not generated (run up)"))
 
     # Lock
-    lock_path = instance.root / ".lock"
-    if lock_path.exists():
-        checks.append(Check("Lock", "warn", f"Lock file present: {lock_path}"))
+    if instance_is_locked(instance):
+        checks.append(Check("Lock", "warn", "Instance operation in progress"))
     else:
-        checks.append(Check("Lock", "ok", "No lock"))
+        checks.append(Check("Lock", "ok", "Available"))
 
     return checks
 
@@ -142,8 +174,8 @@ def doctor(ctx):
 
     # Global checks
     global_checks = [
-        _check_docker(),
-        _check_docker_daemon(),
+        _check_container_runtime(),
+        _check_compose(),
         _check_home(),
         _check_registry(),
     ]
@@ -173,3 +205,4 @@ def doctor(ctx):
         console.print(f"[bold yellow]{warns} warning(s), {oks} ok.[/bold yellow]")
     else:
         console.print(f"[bold red]{fails} issue(s), {warns} warning(s), {oks} ok.[/bold red]")
+        raise click.exceptions.Exit(1)

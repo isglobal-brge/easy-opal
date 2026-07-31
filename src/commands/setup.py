@@ -1,17 +1,42 @@
 """Interactive and non-interactive setup wizard."""
 
+import shutil
+from pathlib import Path
+
 import click
 from rich.prompt import Prompt, IntPrompt, Confirm
 
-from src.models import OpalConfig, SSLConfig, DatabaseConfig, ProfileConfig, WatchtowerConfig, SSLStrategy, DatabaseType
+from src.models import OpalConfig, SSLConfig, DatabaseConfig, SSLStrategy, DatabaseType
 from src.models.instance import InstanceContext
 from src.core.config_manager import save_config, load_config, config_exists
 from src.core.secrets_manager import ensure_secrets
 from src.core.ssl import generate_server_cert
 from src.core.nginx import generate_nginx_config
-from src.core.docker import check_docker, compose_up, run_compose
+from src.core.container_runtime import (
+    RuntimeSelectionError,
+    get_runtime,
+    rootless_port_threshold,
+    validate_runtime_config,
+)
+from src.core.docker import (
+    compose_up,
+    generate_compose,
+    obtain_letsencrypt_certificate,
+    restore_running_nginx,
+)
+from src.core.auto_update_scheduler import AutoUpdateScheduleError
+from src.core.host_jobs import (
+    preflight_enabled_schedules,
+    reconcile_schedules,
+)
+from src.core.instance_manager import InstanceLock
+from src.commands.config import (
+    _restore_config_artifacts,
+    _snapshot_config_artifacts,
+    _validate_manual_certificate_pair,
+)
 from src.utils.console import console, display_header, success, error, info, dim, warning
-from src.utils.network import is_port_in_use, find_free_port, get_local_ip, validate_port
+from src.utils.network import find_free_port, get_local_ip, validate_port
 
 
 def _collect_general(config: OpalConfig) -> OpalConfig:
@@ -118,35 +143,54 @@ def _collect_databases(config: OpalConfig) -> OpalConfig:
     return config
 
 
-def _collect_watchtower(config: OpalConfig) -> OpalConfig:
-    """Step 4: Watchtower auto-updates."""
-    info("\n4. Automatic Updates (Watchtower)")
-    dim("Watchtower monitors containers and auto-updates them when new images are available.")
+def _collect_watchtower(config: OpalConfig, runtime_name: str) -> OpalConfig:
+    """Step 4: runtime-neutral automatic updates."""
+    info("\n4. Automatic Updates")
+    dim(
+        f"Easy-Opal will use a host timer and {runtime_name}; no engine socket "
+        "is exposed to another container."
+    )
 
-    if Confirm.ask("Enable Watchtower?", default=False):
-        config.watchtower.enabled = True
-        config.watchtower.poll_interval_hours = IntPrompt.ask(
-            "  Check every (hours)", default=config.watchtower.poll_interval_hours
-        )
+    config.watchtower.enabled = Confirm.ask("Enable automatic updates?", default=False)
+    if config.watchtower.enabled:
+        while True:
+            interval = IntPrompt.ask(
+                "  Check every (hours)",
+                default=config.watchtower.poll_interval_hours,
+            )
+            if interval >= 1:
+                config.watchtower.poll_interval_hours = interval
+                break
+            error("  Interval must be at least one hour.")
         config.watchtower.cleanup = Confirm.ask("  Remove old images after updates?", default=True)
 
     return config
 
 
-def _collect_backup(config: OpalConfig) -> OpalConfig:
+def _collect_backup(config: OpalConfig, runtime_name: str) -> OpalConfig:
     """Automated backups."""
     info("\nAutomated Backups")
-    dim("A backup container runs alongside your stack, creating periodic backups automatically.")
+    dim(f"A host timer creates backups through {runtime_name}.")
 
-    if Confirm.ask("Enable automated backups?", default=False):
-        config.backup.enabled = True
-        config.backup.interval_hours = IntPrompt.ask(
-            "  Backup every (hours)", default=config.backup.interval_hours
-        )
-        if Confirm.ask("  Limit number of backups? (recommended)", default=True):
-            config.backup.keep = IntPrompt.ask(
-                "  Keep how many?", default=config.backup.keep
+    config.backup.enabled = Confirm.ask("Enable automated backups?", default=False)
+    if config.backup.enabled:
+        while True:
+            interval = IntPrompt.ask(
+                "  Backup every (hours)", default=config.backup.interval_hours
             )
+            if interval >= 1:
+                config.backup.interval_hours = interval
+                break
+            error("  Interval must be at least one hour.")
+        if Confirm.ask("  Limit number of backups? (recommended)", default=True):
+            while True:
+                keep = IntPrompt.ask(
+                    "  Keep how many?", default=config.backup.keep
+                )
+                if keep >= 0:
+                    config.backup.keep = keep
+                    break
+                error("  Number of backups cannot be negative.")
         else:
             config.backup.keep = 0
             warning("  No limit set. Backups will accumulate and may fill up disk space.")
@@ -177,8 +221,22 @@ def _collect_optional_services(config: OpalConfig) -> OpalConfig:
     return config
 
 
+def _manual_certificate_sources(
+    *,
+    interactive: bool,
+    cert_path: str | None,
+    key_path: str | None,
+) -> tuple[Path, Path]:
+    """Collect and validate a manual certificate/key pair without mutations."""
+    if interactive:
+        cert_path = Prompt.ask("Path to your SSL certificate file (.crt/.pem)")
+        key_path = Prompt.ask("Path to your SSL private key file (.key)")
+
+    return _validate_manual_certificate_pair(cert_path or "", key_path or "")
+
+
 @click.command()
-@click.option("--name", help="Instance name (also used as the Docker stack name).")
+@click.option("--name", help="Instance name (also used as the Compose stack name).")
 @click.option("--stack-name", help="Alias of --name (kept for compatibility).")
 @click.option("--host", "hosts", multiple=True, help="Hostname or IP (repeatable).")
 @click.option("--port", type=int, help="External HTTPS port.")
@@ -190,9 +248,28 @@ def _collect_optional_services(config: OpalConfig) -> OpalConfig:
 @click.option("--opal-version", help="Opal image tag.")
 @click.option("--mongo-version", help="MongoDB image tag.")
 @click.option("--database", "databases", multiple=True, help="Database spec: type:name:port:user[:version].")
-@click.option("--watchtower", "enable_watchtower", is_flag=True, default=None)
-@click.option("--no-watchtower", "enable_watchtower", flag_value=False)
-@click.option("--watchtower-interval", type=int, help="Watchtower interval in hours.")
+@click.option(
+    "--auto-updates",
+    "--watchtower",
+    "enable_watchtower",
+    is_flag=True,
+    default=None,
+    help="Enable host-side automatic updates (--watchtower is a legacy alias).",
+)
+@click.option(
+    "--no-auto-updates",
+    "--no-watchtower",
+    "enable_watchtower",
+    flag_value=False,
+    help="Disable host-side automatic updates (--no-watchtower is a legacy alias).",
+)
+@click.option(
+    "--auto-update-interval",
+    "--watchtower-interval",
+    "watchtower_interval",
+    type=click.IntRange(min=1),
+    help="Automatic update interval in hours (legacy: --watchtower-interval).",
+)
 @click.option("--with-agate", is_flag=True, default=False, help="Enable Agate authentication.")
 @click.option("--with-mica", is_flag=True, default=False, help="Enable Mica data portal (implies Agate).")
 @click.option("--flavor", type=click.Choice(["opal", "armadillo"]), help="Deployment type.")
@@ -210,9 +287,20 @@ def setup(ctx, name, stack_name, hosts, port, http_port, ssl_strategy, ssl_email
 
     display_header()
 
-    if not check_docker():
-        error("Docker is required. Please install Docker and try again.")
-        return
+    # `setup --name existing` reaches this command without a pre-resolved
+    # context. Resolve it before applying runtime-sensitive presets.
+    if instance is None and desired_name:
+        from src.core.instance_manager import get_instance
+
+        try:
+            instance = get_instance(desired_name)
+        except ValueError:
+            pass
+
+    try:
+        runtime = get_runtime(instance)
+    except RuntimeSelectionError as exc:
+        raise click.ClickException(str(exc)) from exc
 
     config = OpalConfig()
 
@@ -234,16 +322,22 @@ def setup(ctx, name, stack_name, hosts, port, http_port, ssl_strategy, ssl_email
         config = _collect_general(config)
 
     # Resolve the target instance: create a new one (named after the stack) or
-    # reconfigure an existing one. The instance name IS the Docker stack name.
+    # reconfigure an existing one. The instance name is the Compose stack name.
     if instance is None:
-        from src.core.instance_manager import create_instance, next_available_name, get_instance
+        from src.core.instance_manager import (
+            create_instance,
+            get_instance,
+            next_available_name,
+            set_instance_runtime,
+        )
         chosen = desired_name
         if not chosen:
             default_name = next_available_name(config.flavor)
             chosen = (
-                Prompt.ask("Instance name (also the Docker stack name)", default=default_name)
+                Prompt.ask("Instance name (also the Compose stack name)", default=default_name)
                 if is_interactive else default_name
             )
+        created = False
         try:
             instance = get_instance(chosen)  # already exists -> reconfigure it
         except ValueError:
@@ -252,10 +346,34 @@ def setup(ctx, name, stack_name, hosts, port, http_port, ssl_strategy, ssl_email
             except ValueError as e:
                 error(str(e))
                 return
+            created = True
             info(f"Created instance '{instance.name}'.")
+        if created:
+            set_instance_runtime(instance, runtime.name)
+        else:
+            try:
+                runtime = get_runtime(instance)
+            except RuntimeSelectionError as exc:
+                raise click.ClickException(str(exc)) from exc
+
+    try:
+        ctx.with_resource(InstanceLock(instance))
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    # Runtime binding can be created or changed by another setup between the
+    # initial discovery and acquiring the instance lock.  Resolve it again
+    # while exclusively owning the instance before generating any artifacts.
+    try:
+        runtime = get_runtime(instance)
+    except RuntimeSelectionError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    was_configured = config_exists(instance)
+    previous_config = load_config(instance) if was_configured else None
 
     # Confirm before overwriting an already-configured instance.
-    if config_exists(instance) and is_interactive:
+    if was_configured and is_interactive:
         if not Confirm.ask(
             f"Instance '{instance.name}' is already configured. Overwrite its configuration?",
             default=False,
@@ -265,20 +383,33 @@ def setup(ctx, name, stack_name, hosts, port, http_port, ssl_strategy, ssl_email
 
     # Preserve an existing instance's stack name (legacy instances may have a
     # stack name that differs from their name); otherwise the name is the stack.
-    if config_exists(instance):
+    if was_configured:
         try:
-            config.stack_name = load_config(instance).stack_name
+            assert previous_config is not None
+            config.stack_name = previous_config.stack_name
         except Exception:
             config.stack_name = instance.name
     else:
         config.stack_name = instance.name
 
+    port_threshold = rootless_port_threshold(runtime)
+    if (
+        not was_configured
+        and port_threshold is not None
+        and config.opal_external_port < port_threshold
+    ):
+        config.opal_external_port = max(8443, port_threshold)
+        info(
+            "Rootless Podman detected; using HTTPS port "
+            f"{config.opal_external_port} by default."
+        )
+
     if is_interactive:
         config = _collect_ssl(config)
         if config.flavor == "opal":
             config = _collect_databases(config)
-        config = _collect_watchtower(config)
-        config = _collect_backup(config)
+        config = _collect_watchtower(config, runtime.name)
+        config = _collect_backup(config, runtime.name)
         config = _collect_optional_services(config)
     else:
         # Non-interactive: apply CLI flags
@@ -298,7 +429,7 @@ def setup(ctx, name, stack_name, hosts, port, http_port, ssl_strategy, ssl_email
             config.mongo_version = mongo_version
         if enable_watchtower is not None:
             config.watchtower.enabled = enable_watchtower
-        if watchtower_interval:
+        if watchtower_interval is not None:
             config.watchtower.poll_interval_hours = watchtower_interval
 
         # Optional services
@@ -322,118 +453,192 @@ def setup(ctx, name, stack_name, hosts, port, http_port, ssl_strategy, ssl_email
                 DatabaseConfig(type=DatabaseType(db_type), name=name, port=int(port_str), user=user, version=version)
             )
 
-    # Mirror the stack name into the registry (config.json is the source of truth).
+    # Reject runtime-specific features before persisting a configuration that
+    # cannot be generated or started on the selected engine.
+    from src.services import ServiceRegistry
+    try:
+        validate_runtime_config(
+            runtime, config, port_threshold=port_threshold
+        )
+        ServiceRegistry(
+            config, instance, {}, runtime_name=runtime.name
+        ).validate_runtime_support()
+    except (RuntimeSelectionError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    manual_certificates: tuple[Path, Path] | None = None
+    if config.ssl.strategy == SSLStrategy.MANUAL:
+        manual_certificates = _manual_certificate_sources(
+            interactive=is_interactive,
+            cert_path=ssl_cert,
+            key_path=ssl_key,
+        )
+
+    try:
+        preflight_enabled_schedules(instance, runtime, config)
+    except AutoUpdateScheduleError as exc:
+        raise click.ClickException(
+            f"Scheduled job preflight failed; setup was not saved: {exc}"
+        ) from exc
+
+    snapshots = _snapshot_config_artifacts(instance)
+    schedule_reconcile_started = False
+    registry_update_started = False
+    letsencrypt_failed = False
+    nginx_was_running = False
+    previous_stack_name = (
+        previous_config.stack_name
+        if previous_config is not None
+        else instance.name
+    )
     from src.core.instance_manager import update_stack_name
-    update_stack_name(instance.name, config.stack_name)
 
-    # Save config and generate secrets
-    instance.ensure_dirs()
-    save_config(config, instance)
-    secrets = ensure_secrets(instance, config)
+    try:
+        instance.ensure_dirs()
+        secrets = ensure_secrets(instance, config)
 
-    # Admin password: user-provided or auto-generated
-    pw_key = "ARMADILLO_ADMIN_PASSWORD" if config.flavor == "armadillo" else "OPAL_ADMIN_PASSWORD"
-    if password:
-        secrets[pw_key] = password
-        from src.core.secrets_manager import save_secrets
-        save_secrets(secrets, instance)
-    elif is_interactive:
-        from rich.prompt import Prompt as P
-        choice = Confirm.ask("Set your own admin password?", default=False)
-        if choice:
+        # Finalize the admin password before rendering artifacts that consume it.
+        pw_key = (
+            "ARMADILLO_ADMIN_PASSWORD"
+            if config.flavor == "armadillo"
+            else "OPAL_ADMIN_PASSWORD"
+        )
+        password_changed = False
+        if password:
+            secrets[pw_key] = password
+            password_changed = True
+        elif is_interactive and Confirm.ask(
+            "Set your own admin password?", default=False
+        ):
             while True:
-                custom_pw = P.ask("  Admin password", password=True)
+                custom_pw = Prompt.ask("  Admin password", password=True)
                 if custom_pw and custom_pw.strip():
                     secrets[pw_key] = custom_pw
-                    from src.core.secrets_manager import save_secrets
-                    save_secrets(secrets, instance)
+                    password_changed = True
                     break
                 error("  Password cannot be empty.")
+        if password_changed:
+            from src.core.secrets_manager import save_secrets
+
+            save_secrets(secrets, instance)
+
+        if config.ssl.strategy == SSLStrategy.SELF_SIGNED:
+            generate_server_cert(instance, config)
+        elif manual_certificates is not None:
+            cert_file, key_file = manual_certificates
+            instance.certs_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(cert_file, instance.certs_dir / "opal.crt")
+            shutil.copy2(key_file, instance.certs_dir / "opal.key")
+            (instance.certs_dir / "opal.crt").chmod(0o644)
+            (instance.certs_dir / "opal.key").chmod(0o600)
+
+        generate_nginx_config(config, instance)
+        if config.agate.enabled:
+            from src.core.agate_config import generate_agate_config
+
+            generate_agate_config(config, instance, secrets)
+
+        # Materialize a complete plan even when the user chooses not to start.
+        generate_compose(config, instance)
+
+        # Schedules are installed only after every local artifact is coherent.
+        schedule_reconcile_started = True
+        reconcile_schedules(instance, runtime, config)
+
+        if config.ssl.strategy == SSLStrategy.LETSENCRYPT:
+            info("Requesting Let's Encrypt certificate...")
+            try:
+                acquisition = obtain_letsencrypt_certificate(config, instance)
+            except Exception as exc:
+                nginx_was_running = bool(
+                    getattr(exc, "nginx_was_running", False)
+                )
+                raise
+            cert_ok = bool(acquisition)
+            nginx_was_running = bool(
+                getattr(acquisition, "nginx_was_running", False)
+            )
+
+            if not cert_ok:
+                error("Failed to obtain Let's Encrypt certificate.")
+                error("Reverting SSL strategy to 'self-signed'...")
+                config.ssl = SSLConfig(strategy=SSLStrategy.SELF_SIGNED)
+                generate_server_cert(instance, config)
+                generate_nginx_config(config, instance)
+                generate_compose(config, instance)
+                if nginx_was_running and not restore_running_nginx(
+                    config, instance
+                ):
+                    raise RuntimeError(
+                        "The self-signed fallback was generated, but the "
+                        "previously running NGINX service could not be restored."
+                    )
+                letsencrypt_failed = True
+            else:
+                info("Let's Encrypt challenge completed and NGINX restored.")
+
+        # Commit the source of truth last. Scheduled jobs take the same lock.
+        save_config(config, instance)
+        registry_update_started = True
+        update_stack_name(instance.name, config.stack_name)
+    except Exception as exc:
+        rollback_errors: list[str] = []
+        if schedule_reconcile_started:
+            fallback = (
+                previous_config
+                if previous_config is not None
+                else config.model_copy(deep=True)
+            )
+            if previous_config is None:
+                fallback.watchtower.enabled = False
+                fallback.backup.enabled = False
+                fallback.profile_updater.enabled = False
+            try:
+                reconcile_schedules(instance, runtime, fallback)
+            except Exception as rollback_exc:
+                rollback_errors.append(f"schedules: {rollback_exc}")
+        files_restored = False
+        try:
+            _restore_config_artifacts(snapshots)
+            files_restored = True
+        except Exception as rollback_exc:
+            rollback_errors.append(f"files: {rollback_exc}")
+        if nginx_was_running and previous_config is not None and files_restored:
+            try:
+                if not restore_running_nginx(previous_config, instance):
+                    rollback_errors.append("NGINX: restart failed")
+            except Exception as rollback_exc:
+                rollback_errors.append(f"NGINX: {rollback_exc}")
+        if registry_update_started:
+            try:
+                update_stack_name(instance.name, previous_stack_name)
+            except Exception as rollback_exc:
+                rollback_errors.append(f"registry: {rollback_exc}")
+
+        if rollback_errors:
+            raise click.ClickException(
+                "Setup failed and rollback was incomplete: "
+                f"{exc}; {'; '.join(rollback_errors)}"
+            ) from exc
+        raise click.ClickException(
+            f"Setup failed; previous files and schedules restored: {exc}"
+        ) from exc
 
     admin_pw = secrets[pw_key]
     success(f"Configuration saved to {instance.config_path}")
     console.print(f"\n[bold]Admin password:[/bold] {admin_pw}")
     dim("Run 'easy-opal config show-password' to retrieve it later.")
-
-    # Generate SSL certs
-    if config.ssl.strategy == SSLStrategy.SELF_SIGNED:
-        generate_server_cert(instance, config)
-    elif config.ssl.strategy == SSLStrategy.MANUAL:
-        import shutil
-        if is_interactive:
-            from rich.prompt import Prompt as P
-            cert_src = P.ask("Path to your SSL certificate file (.crt/.pem)")
-            key_src = P.ask("Path to your SSL private key file (.key)")
-        else:
-            cert_src = click.get_current_context().params.get("ssl_cert") or ""
-            key_src = click.get_current_context().params.get("ssl_key") or ""
-
-        from pathlib import Path
-        cert_file = Path(cert_src)
-        key_file = Path(key_src)
-        if not cert_file.is_file() or not key_file.is_file():
-            error("Certificate or key file not found.")
-            return
-
-        # Validate PEM format
-        try:
-            from cryptography import x509
-            from cryptography.hazmat.primitives.serialization import load_pem_private_key
-            x509.load_pem_x509_certificate(cert_file.read_bytes())
-            load_pem_private_key(key_file.read_bytes(), password=None)
-        except Exception as e:
-            error(f"Invalid certificate or key: {e}")
-            return
-
-        instance.certs_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy(cert_src, instance.certs_dir / "opal.crt")
-        shutil.copy(key_src, instance.certs_dir / "opal.key")
+    if manual_certificates is not None:
         success("Certificates validated and copied.")
-
-    # Generate NGINX config
-    generate_nginx_config(config, instance)
-
-    # Generate Agate config if enabled
     if config.agate.enabled:
-        from src.core.agate_config import generate_agate_config
-        generate_agate_config(config, instance, secrets)
         info("Agate email configuration generated.")
-
-    # Handle Let's Encrypt
+    if letsencrypt_failed:
+        info(
+            "Reverted to self-signed. Fix DNS/firewall and re-run: "
+            "easy-opal config change-ssl letsencrypt"
+        )
+        return
     if config.ssl.strategy == SSLStrategy.LETSENCRYPT:
-        info("Requesting Let's Encrypt certificate...")
-        info("  Step 1/4: Generating temporary HTTP-only NGINX config...")
-        generate_nginx_config(config, instance, acme_only=True)
-        from src.core.docker import generate_compose
-        generate_compose(config, instance)
-
-        info("  Step 2/4: Starting NGINX for ACME challenge...")
-        run_compose(["up", "-d", "nginx"], instance, config.stack_name)
-
-        info("  Step 3/4: Running certbot to obtain certificate...")
-        certbot_args = [
-            "run", "--rm", "certbot", "certonly", "--webroot",
-            "--webroot-path", "/var/www/certbot",
-            "--email", config.ssl.le_email,
-            "--agree-tos", "--no-eff-email", "--force-renewal",
-        ]
-        for domain in config.hosts:
-            certbot_args.extend(["-d", domain])
-        cert_ok = run_compose(certbot_args, instance, config.stack_name)
-        run_compose(["stop", "nginx"], instance, config.stack_name)
-
-        if not cert_ok:
-            error("Failed to obtain Let's Encrypt certificate.")
-            error("Reverting SSL strategy to 'self-signed'...")
-            config.ssl = SSLConfig(strategy=SSLStrategy.SELF_SIGNED)
-            save_config(config, instance)
-            generate_server_cert(instance, config)
-            generate_nginx_config(config, instance)
-            info("Reverted to self-signed. Fix DNS/firewall and re-run: easy-opal config change-ssl letsencrypt")
-            return
-
-        info("  Step 4/4: Generating full HTTPS NGINX config...")
-        generate_nginx_config(config, instance, acme_only=False)
         success("Let's Encrypt certificate obtained.")
 
     # Offer to start
@@ -441,7 +646,8 @@ def setup(ctx, name, stack_name, hosts, port, http_port, ssl_strategy, ssl_email
     start = yes or Confirm.ask("Start the stack now?", default=True)
     if start:
         info("Starting...")
-        compose_up(instance, config)
+        if not compose_up(instance, config):
+            raise click.ClickException("Setup was saved, but the stack failed to start.")
         console.print()
         if config.ssl.strategy == SSLStrategy.NONE:
             success(f"Opal is accessible at: http://localhost:{config.opal_http_port}")

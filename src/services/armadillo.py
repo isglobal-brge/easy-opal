@@ -4,6 +4,7 @@ import yaml
 
 from src.models.config import OpalConfig
 from src.models.instance import InstanceContext
+from src.utils.images import qualify_image
 
 
 def _generate_application_yml(config: OpalConfig, ctx: InstanceContext) -> None:
@@ -12,8 +13,8 @@ def _generate_application_yml(config: OpalConfig, ctx: InstanceContext) -> None:
     for i, p in enumerate(config.profiles):
         profiles.append({
             "name": "default" if i == 0 else p.name,
-            "image": f"{p.image}:{p.tag}",
-            "host": p.name,  # Docker service name
+            "image": qualify_image(f"{p.image}:{p.tag}"),
+            "host": p.name,  # Compose service name
             "port": 8085,
             "package-whitelist": ["dsBase"],
         })
@@ -57,11 +58,13 @@ class ArmadilloService:
 
         volumes = [
             f"{config.stack_name}-armadillo-data:/data",
-            f"{ctx.data_dir / 'armadillo-config'}:/config",
+            f"{ctx.data_dir / 'armadillo-config'}:/config:Z",
         ]
 
         svc: dict = {
-            "image": f"molgenis/molgenis-armadillo:{config.armadillo.version}",
+            "image": (
+                f"docker.io/molgenis/molgenis-armadillo:{config.armadillo.version}"
+            ),
             "container_name": f"{config.stack_name}-armadillo",
             "platform": "linux/amd64",
             "restart": "always",

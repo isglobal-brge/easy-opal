@@ -5,7 +5,11 @@ from rich.prompt import Confirm
 
 from src.models.instance import InstanceContext
 from src.core.config_manager import load_config, config_exists
-from src.core.docker import compose_up, compose_down, compose_restart, compose_status, compose_reset, check_docker
+from src.core.auto_update_scheduler import AutoUpdateScheduleError
+from src.core.container_runtime import get_runtime
+from src.core.docker import compose_up, compose_down, compose_restart, compose_status, compose_reset
+from src.core.host_jobs import reconcile_schedules
+from src.core.instance_manager import InstanceLock
 from src.utils.console import console, success, error, info, for_each_instance, require_single_instance
 
 
@@ -15,14 +19,23 @@ def up(ctx):
     """Start the stack (convergent — only recreates changed services)."""
     def _up(instance):
         if not config_exists(instance):
-            error(f"[{instance.name}] No configuration found.")
-            return
+            raise click.ClickException(
+                f"[{instance.name}] No configuration found. Run 'easy-opal setup' first."
+            )
         config = load_config(instance)
-        info(f"Starting {instance.name}...")
-        if compose_up(instance, config):
-            success(f"{instance.name} is running.")
-    if not check_docker():
-        return
+        try:
+            with InstanceLock(instance):
+                info(f"Starting {instance.name}...")
+                if not compose_up(instance, config):
+                    raise click.ClickException(f"Failed to start {instance.name}.")
+                reconcile_schedules(instance, get_runtime(instance), config)
+        except AutoUpdateScheduleError as exc:
+            raise click.ClickException(
+                f"{instance.name} started, but scheduled jobs could not be reconciled: {exc}"
+            ) from exc
+        except RuntimeError as exc:
+            raise click.ClickException(str(exc)) from exc
+        success(f"{instance.name} is running.")
     for_each_instance(ctx, _up)
 
 
@@ -32,9 +45,16 @@ def down(ctx):
     """Stop the stack."""
     def _down(instance):
         if not config_exists(instance):
-            return
+            raise click.ClickException(
+                f"[{instance.name}] No configuration found. Run 'easy-opal setup' first."
+            )
         config = load_config(instance)
-        compose_down(instance, config)
+        try:
+            with InstanceLock(instance):
+                if not compose_down(instance, config):
+                    raise click.ClickException(f"Failed to stop {instance.name}.")
+        except RuntimeError as exc:
+            raise click.ClickException(str(exc)) from exc
         success(f"{instance.name} stopped.")
     for_each_instance(ctx, _down)
 
@@ -45,11 +65,23 @@ def restart(ctx):
     """Restart the stack (full down + up cycle)."""
     def _restart(instance):
         if not config_exists(instance):
-            return
+            raise click.ClickException(
+                f"[{instance.name}] No configuration found. Run 'easy-opal setup' first."
+            )
         config = load_config(instance)
-        info(f"Restarting {instance.name}...")
-        if compose_restart(instance, config):
-            success(f"{instance.name} restarted.")
+        try:
+            with InstanceLock(instance):
+                info(f"Restarting {instance.name}...")
+                if not compose_restart(instance, config):
+                    raise click.ClickException(f"Failed to restart {instance.name}.")
+                reconcile_schedules(instance, get_runtime(instance), config)
+        except AutoUpdateScheduleError as exc:
+            raise click.ClickException(
+                f"{instance.name} restarted, but scheduled jobs could not be reconciled: {exc}"
+            ) from exc
+        except RuntimeError as exc:
+            raise click.ClickException(str(exc)) from exc
+        success(f"{instance.name} restarted.")
     for_each_instance(ctx, _restart)
 
 
@@ -59,20 +91,26 @@ def status(ctx):
     """Show container status."""
     def _status(instance):
         if not config_exists(instance):
-            return
+            raise click.ClickException(
+                f"[{instance.name}] No configuration found. Run 'easy-opal setup' first."
+            )
         config = load_config(instance)
-        compose_status(instance, config)
+        if not compose_status(instance, config):
+            raise click.ClickException(
+                f"Failed to query status for {instance.name}."
+            )
     for_each_instance(ctx, _status)
 
 
 @click.command()
 @click.pass_context
 def plan(ctx):
-    """Show what docker-compose.yml would look like without applying."""
+    """Show the generated Compose configuration without applying it."""
     instance: InstanceContext = require_single_instance(ctx)
     if not config_exists(instance):
-        error("No configuration found. Run 'easy-opal setup' first.")
-        return
+        raise click.ClickException(
+            "No configuration found. Run 'easy-opal setup' first."
+        )
     config = load_config(instance)
     from src.utils.diff import show_compose_preview
     show_compose_preview(config, instance)
@@ -84,8 +122,9 @@ def validate(ctx):
     """Validate configuration without starting anything."""
     instance: InstanceContext = require_single_instance(ctx)
     if not config_exists(instance):
-        error("No configuration found. Run 'easy-opal setup' first.")
-        return
+        raise click.ClickException(
+            "No configuration found. Run 'easy-opal setup' first."
+        )
 
     config = load_config(instance)
 
@@ -125,29 +164,37 @@ def validate(ctx):
         error(f"{len(issues)} issue(s) found:")
         for issue in issues:
             console.print(f"  - {issue}")
+        raise click.ClickException("Configuration is invalid.")
     else:
         success("Configuration is valid.")
 
 
 @click.command()
-@click.option("--volumes", is_flag=True, help="Also delete Docker volumes (data loss).")
+@click.option("--volumes", is_flag=True, help="Also delete container volumes (data loss).")
 @click.option("--yes", is_flag=True, help="Skip confirmation.")
 @click.pass_context
 def reset(ctx, volumes, yes):
     """Stop the stack and optionally delete volumes."""
     instance: InstanceContext = require_single_instance(ctx)
     if not config_exists(instance):
-        error("No configuration found.")
-        return
+        raise click.ClickException(
+            "No configuration found. Run 'easy-opal setup' first."
+        )
 
     if volumes and not yes:
         if not Confirm.ask("[bold red]This will delete ALL data. Are you sure?[/bold red]", default=False):
             return
 
     config = load_config(instance)
-    if volumes:
-        compose_reset(instance, config)
-        success("Stack stopped and volumes deleted.")
-    else:
-        compose_down(instance, config)
-        success("Stack stopped.")
+    try:
+        with InstanceLock(instance):
+            if volumes:
+                if not compose_reset(instance, config):
+                    raise click.ClickException("Failed to reset the stack.")
+                success("Stack stopped and volumes deleted.")
+            else:
+                if not compose_down(instance, config):
+                    raise click.ClickException("Failed to stop the stack.")
+                success("Stack stopped.")
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc

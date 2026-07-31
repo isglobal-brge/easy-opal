@@ -1,11 +1,10 @@
 """Execute commands inside containers."""
 
-import subprocess
-
 import click
 
 from src.models.instance import InstanceContext
 from src.core.config_manager import load_config, config_exists
+from src.core.container_runtime import RuntimeSelectionError, get_runtime
 from src.utils.console import error, require_single_instance
 
 
@@ -32,11 +31,18 @@ def exec_cmd(ctx, service, command):
     config = load_config(instance)
     container = f"{config.stack_name}-{service}"
 
-    cmd = ["docker", "exec", "-it", container] + list(command or ["sh"])
+    cmd = ["exec", "-it", container] + list(command or ["sh"])
 
     try:
-        subprocess.run(cmd, check=False)
-    except FileNotFoundError:
-        error("Docker not found.")
+        runtime = get_runtime(instance)
+        result = runtime.run(cmd, check=False)
+        if result.returncode != 0:
+            raise click.ClickException(
+                f"Command failed in '{service}' with exit code {result.returncode}."
+            )
+    except RuntimeSelectionError as exc:
+        raise click.ClickException(str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise click.ClickException("Container runtime not available.") from exc
     except KeyboardInterrupt:
         pass

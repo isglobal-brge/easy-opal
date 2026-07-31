@@ -1,11 +1,10 @@
 """View container logs."""
 
-import subprocess
-
 import click
 
 from src.core.config_manager import load_config, config_exists
-from src.utils.console import error, for_each_instance
+from src.core.container_runtime import RuntimeSelectionError, get_runtime
+from src.utils.console import for_each_instance
 
 
 @click.command()
@@ -20,13 +19,22 @@ def logs(ctx, service, follow, lines):
             return
         config = load_config(instance)
         container = f"{config.stack_name}-{service}"
-        cmd = ["docker", "logs", container, "--tail", str(lines)]
+        cmd = ["logs", "--tail", str(lines)]
         if follow:
             cmd.append("-f")
+        cmd.append(container)
         try:
-            subprocess.run(cmd, check=False)
-        except FileNotFoundError:
-            error("Docker not found.")
+            runtime = get_runtime(instance)
+            result = runtime.run(cmd, check=False)
+            if result.returncode != 0:
+                raise click.ClickException(
+                    f"Failed to read '{service}' logs with exit code "
+                    f"{result.returncode}."
+                )
+        except RuntimeSelectionError as exc:
+            raise click.ClickException(str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise click.ClickException("Container runtime not available.") from exc
         except KeyboardInterrupt:
             pass
 

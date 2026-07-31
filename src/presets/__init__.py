@@ -1,9 +1,8 @@
 """Configuration presets: named templates for common deployment patterns."""
 
 from src.models.config import (
-    OpalConfig, SSLConfig, AgateConfig, MicaConfig, WatchtowerConfig,
+    OpalConfig,
 )
-from src.models.enums import SSLStrategy
 
 PRESETS: dict[str, dict] = {
     "opal-dev": {
@@ -14,10 +13,10 @@ PRESETS: dict[str, dict] = {
         },
     },
     "opal-prod": {
-        "description": "Production with Let's Encrypt and Watchtower",
+        "description": "Production with Let's Encrypt (automatic updates are opt-in)",
         "config": {
             "ssl": {"strategy": "letsencrypt"},
-            "watchtower": {"enabled": True, "poll_interval_hours": 24},
+            "watchtower": {"enabled": False},
         },
     },
     "opal-proxy": {
@@ -49,12 +48,12 @@ PRESETS: dict[str, dict] = {
         },
     },
     "armadillo-prod": {
-        "description": "Armadillo with Keycloak OIDC for production",
+        "description": "Armadillo with Keycloak OIDC (automatic updates are opt-in)",
         "config": {
             "flavor": "armadillo",
             "ssl": {"strategy": "letsencrypt"},
             "keycloak": {"enabled": True},
-            "watchtower": {"enabled": True, "poll_interval_hours": 24},
+            "watchtower": {"enabled": False},
         },
     },
 }

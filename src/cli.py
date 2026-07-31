@@ -4,6 +4,7 @@ import sys
 
 import click
 
+from src.core.container_runtime import set_requested_runtime
 from src.core.instance_manager import resolve_instance, list_instances, get_instance
 
 
@@ -86,11 +87,21 @@ def _route_setup(ctx, instance_name, all_instances):
 @click.option("-i", "--instance", "instance_name", envvar="EASY_OPAL_INSTANCE", default=None,
               help="Target instance (auto-detected if only one exists).")
 @click.option("--all", "all_instances", is_flag=True, help="Apply to all instances.")
+@click.option(
+    "--runtime",
+    type=click.Choice(["auto", "docker", "podman"]),
+    envvar="EASY_OPAL_RUNTIME",
+    default="auto",
+    show_default=True,
+    help="Container runtime. Auto reuses the instance binding or detects one.",
+)
 @click.pass_context
-def main(ctx, instance_name, all_instances):
+def main(ctx, instance_name, all_instances, runtime):
     """Deploy and manage OBiBa Opal environments."""
     ctx.ensure_object(dict)
     ctx.obj["all"] = all_instances
+    ctx.obj["runtime"] = runtime
+    set_requested_runtime(runtime)
 
     subcommand = ctx.invoked_subcommand
 
@@ -134,6 +145,7 @@ from src.commands.doctor import doctor
 from src.commands.support import support_bundle
 from src.commands.logs import logs
 from src.commands.exec import exec_cmd
+from src.commands.auto_update import auto_update
 
 main.add_command(instance)
 main.add_command(instance, name="stack")  # discoverable alias
@@ -156,3 +168,4 @@ main.add_command(doctor)
 main.add_command(support_bundle)
 main.add_command(logs)
 main.add_command(exec_cmd)
+main.add_command(auto_update)

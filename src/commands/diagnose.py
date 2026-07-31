@@ -1,5 +1,6 @@
 """Health diagnostics — modular, clean, focused."""
 
+import json
 import subprocess
 
 import click
@@ -8,6 +9,7 @@ import requests
 from src.models.instance import InstanceContext
 from src.models.enums import SSLStrategy
 from src.core.config_manager import load_config, config_exists
+from src.core.container_runtime import RuntimeSelectionError, get_runtime
 from src.core.ssl import get_cert_info
 from src.utils.console import console, error, require_single_instance
 
@@ -25,6 +27,30 @@ class DiagnosticResult:
         )
 
 
+def _json_records(output: str) -> list[dict]:
+    """Accept both JSON arrays and newline-delimited JSON from Compose providers."""
+    output = output.strip()
+    if not output:
+        return []
+    try:
+        parsed = json.loads(output)
+        if isinstance(parsed, list):
+            return [item for item in parsed if isinstance(item, dict)]
+        if isinstance(parsed, dict):
+            return [parsed]
+    except json.JSONDecodeError:
+        pass
+    records = []
+    for line in output.splitlines():
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(item, dict):
+            records.append(item)
+    return records
+
+
 def _check_compose_file(ctx: InstanceContext) -> DiagnosticResult:
     if ctx.compose_path.exists():
         return DiagnosticResult("Compose file", "pass", f"Found at {ctx.compose_path}")
@@ -33,21 +59,15 @@ def _check_compose_file(ctx: InstanceContext) -> DiagnosticResult:
 
 def _check_containers(ctx: InstanceContext, config) -> DiagnosticResult:
     try:
-        result = subprocess.run(
-            ["docker", "compose", "-f", str(ctx.compose_path), "--project-name", config.stack_name, "ps", "--format", "json"],
+        runtime = get_runtime(ctx)
+        result = runtime.compose(
+            ["ps", "--format", "json"], ctx, project_name=config.stack_name,
             capture_output=True, text=True, check=False
         )
         if result.returncode != 0:
             return DiagnosticResult("Containers", "fail", "Could not query containers.")
 
-        import json
-        lines = [l for l in result.stdout.strip().splitlines() if l.strip()]
-        containers = []
-        for line in lines:
-            try:
-                containers.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
+        containers = _json_records(result.stdout)
 
         if not containers:
             return DiagnosticResult("Containers", "fail", "No containers found. Run 'easy-opal up'.")
@@ -57,8 +77,10 @@ def _check_containers(ctx: InstanceContext, config) -> DiagnosticResult:
         if running == total:
             return DiagnosticResult("Containers", "pass", f"All {total} containers running.")
         return DiagnosticResult("Containers", "warn", f"{running}/{total} running.")
+    except RuntimeSelectionError as exc:
+        return DiagnosticResult("Containers", "fail", str(exc))
     except FileNotFoundError:
-        return DiagnosticResult("Containers", "fail", "Docker not found.")
+        return DiagnosticResult("Containers", "fail", "Container runtime not available.")
 
 
 def _check_ssl(ctx: InstanceContext, config) -> DiagnosticResult:
@@ -90,15 +112,23 @@ def _check_endpoint(config) -> DiagnosticResult:
         return DiagnosticResult("Endpoint", "fail", str(e))
 
 
-def _check_databases(config) -> list[DiagnosticResult]:
+def _check_databases(ctx: InstanceContext, config) -> list[DiagnosticResult]:
     """Test database connectivity from the Opal container."""
     results = []
+    try:
+        runtime = get_runtime(ctx)
+    except RuntimeSelectionError as exc:
+        return [
+            DiagnosticResult(f"DB {db.name}", "fail", f"Could not test ({exc})")
+            for db in config.databases
+        ]
+
     for db in config.databases:
         container = f"{config.stack_name}-opal"
         port = {"postgres": 5432, "mysql": 3306, "mariadb": 3306}.get(db.type, 5432)
         try:
-            r = subprocess.run(
-                ["docker", "exec", container, "bash", "-c", f"</dev/tcp/{db.name}/{port}"],
+            r = runtime.run(
+                ["exec", container, "bash", "-c", f"</dev/tcp/{db.name}/{port}"],
                 capture_output=True, check=False, timeout=10,
             )
             if r.returncode == 0:
@@ -106,7 +136,7 @@ def _check_databases(config) -> list[DiagnosticResult]:
             else:
                 results.append(DiagnosticResult(f"DB {db.name}", "fail", f"Cannot reach {db.name}:{port}"))
         except (FileNotFoundError, subprocess.TimeoutExpired):
-            results.append(DiagnosticResult(f"DB {db.name}", "fail", "Could not test (Docker unavailable)"))
+            results.append(DiagnosticResult(f"DB {db.name}", "fail", "Could not test (container runtime unavailable)"))
     return results
 
 
@@ -126,7 +156,7 @@ def diagnose(ctx, quiet):
         _check_containers(instance, config),
         _check_ssl(instance, config),
         _check_endpoint(config),
-        *_check_databases(config),
+        *_check_databases(instance, config),
     ]
 
     passed = sum(1 for r in results if r.status == "pass")
@@ -138,6 +168,7 @@ def diagnose(ctx, quiet):
             console.print(f"[green]HEALTHY[/green] — {passed} passed, {warned} warnings")
         else:
             console.print(f"[red]ISSUES[/red] — {failed} failed, {warned} warnings, {passed} passed")
+            raise click.exceptions.Exit(1)
         return
 
     console.print("\n[bold]Health Diagnostic Report[/bold]\n")
@@ -149,3 +180,4 @@ def diagnose(ctx, quiet):
         console.print("[bold green]All checks passed.[/bold green]")
     else:
         console.print(f"[bold red]{failed} check(s) failed.[/bold red] See above for details.")
+        raise click.exceptions.Exit(1)

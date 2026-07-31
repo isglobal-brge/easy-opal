@@ -14,7 +14,7 @@ class OpalService:
         self, config: OpalConfig, ctx: InstanceContext, secrets: dict[str, str]
     ) -> dict:
         svc: dict = {
-            "image": f"obiba/opal:{config.opal_version}",
+            "image": f"docker.io/obiba/opal:{config.opal_version}",
             "container_name": f"{config.stack_name}-opal",
             "restart": "always",
             "depends_on": {"mongo": {"condition": "service_healthy"}},

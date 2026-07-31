@@ -50,5 +50,7 @@ class InstanceContext:
             self.nginx_conf_dir,
             self.nginx_html_dir,
             self.letsencrypt_dir,
+            self.letsencrypt_dir / "www",
+            self.letsencrypt_dir / "conf",
         ]:
             d.mkdir(parents=True, exist_ok=True)
