@@ -18,16 +18,16 @@ class NginxService:
             ports.append("80:80")
 
         volumes = [
-            f"{ctx.nginx_conf_dir}/nginx.conf:/etc/nginx/nginx.conf:ro",
-            f"{ctx.certs_dir}:/etc/nginx/certs:ro",
-            f"{ctx.nginx_html_dir}:/usr/share/nginx/html:ro",
-            f"{ctx.letsencrypt_dir / 'www'}:/var/www/certbot:ro",
-            f"{ctx.letsencrypt_dir / 'conf'}:/etc/letsencrypt",
+            f"{ctx.nginx_conf_dir}/nginx.conf:/etc/nginx/nginx.conf:ro,Z",
+            f"{ctx.certs_dir}:/etc/nginx/certs:ro,Z",
+            f"{ctx.nginx_html_dir}:/usr/share/nginx/html:ro,Z",
+            f"{ctx.letsencrypt_dir / 'www'}:/var/www/certbot:ro,z",
+            f"{ctx.letsencrypt_dir / 'conf'}:/etc/letsencrypt:ro,z",
         ]
 
         return {
             "nginx": {
-                "image": f"nginx:{config.nginx_version}",
+                "image": f"docker.io/library/nginx:{config.nginx_version}",
                 "container_name": f"{config.stack_name}-nginx",
                 "restart": "always",
                 "ports": ports,

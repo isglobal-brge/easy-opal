@@ -1,6 +1,8 @@
 """Manage secrets.env: generate, load, save, ensure."""
 
 import os
+import re
+import tempfile
 from pathlib import Path
 
 from src.models.config import OpalConfig
@@ -14,6 +16,7 @@ CORE_SECRETS = [
     "ROCK_MANAGER_PASSWORD",
     "ROCK_USER_PASSWORD",
 ]
+_SECRET_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def load_secrets(ctx: InstanceContext) -> dict[str, str]:
@@ -33,13 +36,29 @@ def load_secrets(ctx: InstanceContext) -> dict[str, str]:
 def save_secrets(secrets: dict[str, str], ctx: InstanceContext) -> None:
     """Write dict as KEY=VALUE lines to secrets.env with strict permissions."""
     ctx.root.mkdir(parents=True, exist_ok=True)
-    lines = [f"{k}={v}" for k, v in sorted(secrets.items())]
-    ctx.secrets_path.write_text("\n".join(lines) + "\n")
+    lines = []
+    for key, value in sorted(secrets.items()):
+        if not _SECRET_KEY_RE.fullmatch(key):
+            raise ValueError(f"Invalid secret key: {key!r}")
+        if any(character in value for character in "\r\n\0"):
+            raise ValueError(f"Secret {key!r} contains an unsupported newline or NUL.")
+        lines.append(f"{key}={value}")
+    rendered = ("\n".join(lines) + "\n").encode()
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{ctx.secrets_path.name}.", dir=ctx.root
+    )
     try:
-        os.chmod(ctx.secrets_path, 0o600)
-    except OSError as e:
-        from src.utils.console import warning
-        warning(f"Could not set permissions on {ctx.secrets_path}: {e}")
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = -1
+            stream.write(rendered)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, ctx.secrets_path)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        Path(temporary).unlink(missing_ok=True)
 
 
 def ensure_secrets(ctx: InstanceContext, config: OpalConfig) -> dict[str, str]:

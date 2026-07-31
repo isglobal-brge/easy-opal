@@ -5,6 +5,7 @@ import click
 from src.models.instance import InstanceContext
 from src.models.enums import SSLStrategy
 from src.core.config_manager import load_config, config_exists
+from src.core.instance_manager import InstanceLock
 from src.core.ssl import generate_server_cert, ensure_ca, get_cert_info
 from src.core.docker import run_compose
 from src.utils.console import console, success, error, info, warning, require_single_instance
@@ -24,6 +25,10 @@ def regenerate(ctx):
     if not config_exists(instance):
         error("No configuration found. Run 'easy-opal setup' first.")
         return
+    try:
+        ctx.with_resource(InstanceLock(instance))
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
 
     config = load_config(instance)
 
@@ -33,12 +38,16 @@ def regenerate(ctx):
 
     elif config.ssl.strategy == SSLStrategy.LETSENCRYPT:
         info("Renewing Let's Encrypt certificate...")
-        if not run_compose(["run", "--rm", "certbot", "renew"], instance, config.stack_name):
-            error("Certificate renewal failed.")
-            return
+        if not run_compose(
+            ["--profile", "certbot", "run", "--rm", "certbot", "renew"],
+            instance,
+            config.stack_name,
+        ):
+            raise click.ClickException("Certificate renewal failed.")
         if not run_compose(["exec", "nginx", "nginx", "-s", "reload"], instance, config.stack_name):
-            warning("Could not reload NGINX. Restart the stack manually.")
-            return
+            raise click.ClickException(
+                "Certificate renewed, but NGINX reload failed. Restart the stack manually."
+            )
         success("Certificate renewed.")
 
     elif config.ssl.strategy == SSLStrategy.MANUAL:
@@ -76,6 +85,11 @@ def ca_regenerate(ctx, yes):
             "This will invalidate any browser trust of the current CA. Continue?"
         ):
             return
+
+    try:
+        ctx.with_resource(InstanceLock(instance))
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
 
     # Delete existing CA
     for f in ["ca.crt", "ca.key"]:

@@ -17,7 +17,7 @@ class MailpitService:
     ) -> dict:
         return {
             "mailpit": {
-                "image": "axllent/mailpit:latest",
+                "image": "docker.io/axllent/mailpit:latest",
                 "container_name": f"{config.stack_name}-mailpit",
                 "restart": "always",
                 "ports": [

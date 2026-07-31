@@ -29,7 +29,7 @@ class DatabaseService:
         if db.type == DatabaseType.POSTGRES:
             return {
                 db.name: {
-                    "image": f"postgres:{db.version}",
+                    "image": f"docker.io/library/postgres:{db.version}",
                     "container_name": container,
                     "restart": "always",
                     "environment": {
@@ -51,7 +51,7 @@ class DatabaseService:
         elif db.type == DatabaseType.MYSQL:
             return {
                 db.name: {
-                    "image": f"mysql:{db.version}",
+                    "image": f"docker.io/library/mysql:{db.version}",
                     "container_name": container,
                     "restart": "always",
                     "environment": {
@@ -74,7 +74,7 @@ class DatabaseService:
         else:  # mariadb
             return {
                 db.name: {
-                    "image": f"mariadb:{db.version}",
+                    "image": f"docker.io/library/mariadb:{db.version}",
                     "container_name": container,
                     "restart": "always",
                     "environment": {

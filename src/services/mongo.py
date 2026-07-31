@@ -14,7 +14,7 @@ class MongoService:
     ) -> dict:
         return {
             "mongo": {
-                "image": f"mongo:{config.mongo_version}",
+                "image": f"docker.io/library/mongo:{config.mongo_version}",
                 "container_name": f"{config.stack_name}-mongo",
                 "restart": "always",
                 "volumes": [f"{config.stack_name}-mongo-data:/data/db"],

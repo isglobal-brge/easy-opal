@@ -45,13 +45,16 @@ def _diff_dicts(old: dict, new: dict, prefix: str = "") -> dict:
 
 def show_compose_preview(config: OpalConfig, ctx) -> None:
     """Generate and display compose without writing to disk."""
+    from src.core.container_runtime import get_runtime, validate_runtime_config
     from src.core.secrets_manager import ensure_secrets
     from src.services import ServiceRegistry
     import yaml
 
+    runtime = get_runtime(ctx)
+    validate_runtime_config(runtime, config)
     secrets = ensure_secrets(ctx, config)
-    registry = ServiceRegistry(config, ctx, secrets)
+    registry = ServiceRegistry(config, ctx, secrets, runtime_name=runtime.name)
     compose = registry.assemble_compose()
 
-    console.print("\n[bold]Generated docker-compose.yml:[/bold]\n")
+    console.print("\n[bold]Generated Compose configuration:[/bold]\n")
     console.print(yaml.dump(compose, default_flow_style=False, sort_keys=False))

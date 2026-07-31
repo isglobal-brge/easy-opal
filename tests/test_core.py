@@ -12,6 +12,7 @@ from src.models.instance import InstanceContext
 from src.core.config_manager import load_config, save_config, config_exists
 from src.core.secrets_manager import load_secrets, save_secrets, ensure_secrets
 from src.core.ssl import generate_server_cert, ensure_ca, get_cert_info
+from src.core import docker, secrets_manager
 from src.utils.network import validate_port, is_port_in_use, find_free_port
 from src.utils.crypto import generate_password
 
@@ -29,6 +30,12 @@ class TestConfigManager:
         loaded = load_config(tmp_instance)
         assert loaded.stack_name == "test-stack"
         assert loaded.hosts == ["opal.dev"]
+
+    def test_config_file_is_private(self, tmp_instance):
+        save_config(OpalConfig(), tmp_instance)
+
+        mode = os.stat(tmp_instance.config_path).st_mode & 0o777
+        assert mode == 0o600
 
     def test_load_invalid_json_raises(self, tmp_instance):
         tmp_instance.config_path.write_text("not json!")
@@ -74,6 +81,33 @@ class TestSecretsManager:
         s2 = ensure_secrets(tmp_instance, cfg)
         assert s1 == s2  # Same passwords on second call
 
+    def test_atomic_secret_publish_failure_preserves_previous_file(
+        self, tmp_instance, monkeypatch
+    ):
+        save_secrets({"KEY": "old"}, tmp_instance)
+        temporary_modes = []
+
+        def fail_replace(source, _destination):
+            temporary_modes.append(os.stat(source).st_mode & 0o777)
+            raise OSError("simulated publish failure")
+
+        monkeypatch.setattr(secrets_manager.os, "replace", fail_replace)
+
+        with pytest.raises(OSError, match="publish failure"):
+            save_secrets({"KEY": "new"}, tmp_instance)
+
+        assert load_secrets(tmp_instance) == {"KEY": "old"}
+        assert temporary_modes == [0o600]
+        assert not list(tmp_instance.root.glob(".secrets.env.*"))
+
+    def test_secret_values_cannot_inject_additional_environment_lines(
+        self, tmp_instance
+    ):
+        with pytest.raises(ValueError, match="newline or NUL"):
+            save_secrets({"KEY": "value\nINJECTED=yes"}, tmp_instance)
+
+        assert not tmp_instance.secrets_path.exists()
+
 
 class TestSSL:
     def test_ca_persistent(self, tmp_instance):
@@ -100,6 +134,170 @@ class TestSSL:
 
     def test_no_cert_returns_none(self, tmp_instance):
         assert get_cert_info(tmp_instance) is None
+
+    def test_acme_challenge_never_starts_dependencies_and_always_stops_nginx(
+        self, tmp_instance, monkeypatch
+    ):
+        cfg = OpalConfig(
+            stack_name="study",
+            hosts=["opal.example.org"],
+            ssl={"strategy": "letsencrypt", "le_email": "admin@example.org"},
+        )
+        calls = []
+        nginx_modes = []
+        monkeypatch.setattr(docker, "_nginx_is_running", lambda *_args: False)
+        monkeypatch.setattr(docker, "generate_compose", lambda *_args: None)
+        monkeypatch.setattr(
+            "src.core.nginx.generate_nginx_config",
+            lambda _cfg, _ctx, acme_only=False: nginx_modes.append(acme_only),
+        )
+
+        def run_compose(args, _ctx, _project):
+            calls.append(args)
+            return args[0] != "up"
+
+        monkeypatch.setattr(docker, "run_compose", run_compose)
+
+        assert not docker.obtain_letsencrypt_certificate(cfg, tmp_instance)
+        assert calls == [
+            ["up", "-d", "--no-deps", "--force-recreate", "nginx"],
+            ["stop", "nginx"],
+        ]
+        assert nginx_modes == [True]
+
+    def test_acme_success_restores_full_nginx_configuration(
+        self, tmp_instance, monkeypatch
+    ):
+        cfg = OpalConfig(
+            stack_name="study",
+            hosts=["opal.example.org"],
+            ssl={"strategy": "letsencrypt", "le_email": "admin@example.org"},
+        )
+        calls = []
+        nginx_modes = []
+        compose_generations = []
+        monkeypatch.setattr(docker, "_nginx_is_running", lambda *_args: False)
+        monkeypatch.setattr(
+            docker,
+            "generate_compose",
+            lambda *_args: compose_generations.append(True),
+        )
+        monkeypatch.setattr(
+            "src.core.nginx.generate_nginx_config",
+            lambda _cfg, _ctx, acme_only=False: nginx_modes.append(acme_only),
+        )
+        monkeypatch.setattr(
+            docker,
+            "run_compose",
+            lambda args, _ctx, _project: calls.append(args) or True,
+        )
+
+        assert docker.obtain_letsencrypt_certificate(cfg, tmp_instance)
+        assert calls[0] == [
+            "up",
+            "-d",
+            "--no-deps",
+            "--force-recreate",
+            "nginx",
+        ]
+        assert calls[-1] == ["stop", "nginx"]
+        assert any("certbot" in args for args in calls)
+        assert nginx_modes == [True, False]
+        assert len(compose_generations) == 2
+
+    def test_acme_stop_failure_is_not_reported_as_success(
+        self, tmp_instance, monkeypatch
+    ):
+        cfg = OpalConfig(
+            stack_name="study",
+            hosts=["opal.example.org"],
+            ssl={"strategy": "letsencrypt", "le_email": "admin@example.org"},
+        )
+        calls = []
+        nginx_modes = []
+        compose_generations = []
+        monkeypatch.setattr(docker, "_nginx_is_running", lambda *_args: False)
+        monkeypatch.setattr(
+            docker,
+            "generate_compose",
+            lambda *_args: compose_generations.append(True),
+        )
+        monkeypatch.setattr(
+            "src.core.nginx.generate_nginx_config",
+            lambda _cfg, _ctx, acme_only=False: nginx_modes.append(acme_only),
+        )
+
+        def run_compose(args, _ctx, _project):
+            calls.append(args)
+            return args != ["stop", "nginx"]
+
+        monkeypatch.setattr(docker, "run_compose", run_compose)
+
+        with pytest.raises(RuntimeError, match="could not be stopped"):
+            docker.obtain_letsencrypt_certificate(cfg, tmp_instance)
+
+        assert calls[-1] == ["stop", "nginx"]
+        assert nginx_modes == [True]
+        assert len(compose_generations) == 1
+
+    def test_acme_restores_nginx_when_it_was_running(
+        self, tmp_instance, monkeypatch
+    ):
+        cfg = OpalConfig(
+            stack_name="study",
+            hosts=["opal.example.org"],
+            ssl={"strategy": "letsencrypt", "le_email": "admin@example.org"},
+        )
+        calls = []
+        monkeypatch.setattr(docker, "_nginx_is_running", lambda *_args: True)
+        monkeypatch.setattr(docker, "generate_compose", lambda *_args: None)
+        monkeypatch.setattr(
+            "src.core.nginx.generate_nginx_config", lambda *_args, **_kwargs: None
+        )
+        monkeypatch.setattr(
+            docker,
+            "run_compose",
+            lambda args, _ctx, _project: calls.append(args) or True,
+        )
+
+        result = docker.obtain_letsencrypt_certificate(cfg, tmp_instance)
+
+        assert result.obtained
+        assert result.nginx_was_running
+        assert calls[0] == [
+            "up",
+            "-d",
+            "--no-deps",
+            "--force-recreate",
+            "nginx",
+        ]
+        assert calls[-1] == calls[0]
+        assert ["stop", "nginx"] in calls
+
+    def test_acme_post_challenge_error_keeps_original_running_state(
+        self, tmp_instance, monkeypatch
+    ):
+        cfg = OpalConfig(
+            stack_name="study",
+            hosts=["opal.example.org"],
+            ssl={"strategy": "letsencrypt", "le_email": "admin@example.org"},
+        )
+        monkeypatch.setattr(docker, "_nginx_is_running", lambda *_args: True)
+        monkeypatch.setattr(docker, "generate_compose", lambda *_args: None)
+
+        def generate_nginx(_cfg, _ctx, acme_only=False):
+            if not acme_only:
+                raise OSError("full NGINX generation failed")
+
+        monkeypatch.setattr(
+            "src.core.nginx.generate_nginx_config", generate_nginx
+        )
+        monkeypatch.setattr(docker, "run_compose", lambda *_args: True)
+
+        with pytest.raises(docker.CertificateAcquisitionError) as exc_info:
+            docker.obtain_letsencrypt_certificate(cfg, tmp_instance)
+
+        assert exc_info.value.nginx_was_running is True
 
 
 class TestNetwork:
@@ -141,3 +339,5 @@ class TestInstanceContext:
         assert tmp_instance.data_dir.exists()
         assert tmp_instance.certs_dir.exists()
         assert tmp_instance.nginx_conf_dir.exists()
+        assert (tmp_instance.letsencrypt_dir / "www").exists()
+        assert (tmp_instance.letsencrypt_dir / "conf").exists()

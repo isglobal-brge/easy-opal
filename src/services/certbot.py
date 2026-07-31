@@ -15,11 +15,14 @@ class CertbotService:
     ) -> dict:
         return {
             "certbot": {
-                "image": "certbot/certbot",
+                "image": "docker.io/certbot/certbot",
                 "container_name": f"{config.stack_name}-certbot",
+                # Available to `compose run certbot`, but excluded from a
+                # normal `compose up` because it is a one-shot CLI image.
+                "profiles": ["certbot"],
                 "volumes": [
-                    f"{ctx.letsencrypt_dir / 'www'}:/var/www/certbot:rw",
-                    f"{ctx.letsencrypt_dir / 'conf'}:/etc/letsencrypt",
+                    f"{ctx.letsencrypt_dir / 'www'}:/var/www/certbot:rw,z",
+                    f"{ctx.letsencrypt_dir / 'conf'}:/etc/letsencrypt:rw,z",
                 ],
             }
         }

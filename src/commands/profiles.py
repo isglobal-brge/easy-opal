@@ -1,7 +1,6 @@
 """Rock server profile management."""
 
 import subprocess
-import json
 
 import click
 from rich.prompt import Prompt, Confirm
@@ -10,21 +9,58 @@ from rich.table import Table
 from src.models.config import ProfileConfig
 from src.models.instance import InstanceContext
 from src.core.config_manager import load_config, save_config, config_exists
-from src.core.docker import generate_compose, pull_image
+from src.core.auto_update import COMPOSE_TIMEOUT_SECONDS, PULL_TIMEOUT_SECONDS
+from src.core.container_runtime import RuntimeSelectionError, get_runtime
+from src.core.instance_manager import InstanceLock, LOCK_TIMEOUT_SECONDS
+from src.core.docker import generate_compose
 from src.utils.console import console, success, error, info, dim, warning, for_each_instance, get_instances
+from src.utils.images import qualify_image
 
 
-def _get_container_status(stack_name: str, profile_name: str) -> str:
+def _get_container_status(instance: InstanceContext, stack_name: str, profile_name: str) -> str:
     """Check if a profile's container is running."""
     container = f"{stack_name}-{profile_name}"
     try:
-        r = subprocess.run(
-            ["docker", "inspect", container, "--format", "{{.State.Status}}"],
+        runtime = get_runtime(instance)
+        r = runtime.run(
+            ["inspect", "--format", "{{.State.Status}}", container],
             capture_output=True, text=True, check=False, timeout=5,
         )
         return r.stdout.strip() if r.returncode == 0 else "not created"
+    except RuntimeSelectionError:
+        return "runtime unavailable"
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return "unknown"
+
+
+def _parse_profile_spec(spec: str, default_tag: str) -> ProfileConfig:
+    """Parse image[:tag[:name]] without splitting a registry host port."""
+    slash = spec.rfind("/")
+    prefix = spec[: slash + 1]
+    parts = spec[slash + 1 :].split(":")
+    if len(parts) > 3 or not parts[0]:
+        raise ValueError(f"Invalid profile spec: {spec}")
+
+    image = prefix + parts[0]
+    tag = parts[1] if len(parts) >= 2 and parts[1] else default_tag
+    name = parts[2] if len(parts) == 3 and parts[2] else parts[0]
+    return ProfileConfig(name=name, image=image, tag=tag)
+
+
+def _run_locked(instance: InstanceContext, operation):
+    try:
+        with InstanceLock(instance):
+            return operation(instance)
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _pull_image(runtime, image: str):
+    """Pull one image with the same bounded timeout as automatic updates."""
+    try:
+        return runtime.pull(image, timeout=PULL_TIMEOUT_SECONDS), ""
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return None, str(exc)
 
 
 @click.group()
@@ -35,7 +71,7 @@ def profile():
 
 @profile.command()
 @click.argument("profiles", nargs=-1)
-@click.option("--image", help="Docker image (for single add).")
+@click.option("--image", help="Container image (for single add).")
 @click.option("--tag", default="latest", help="Image tag.")
 @click.option("--name", help="Service name (for single add).")
 @click.option("--yes", is_flag=True, help="Skip confirmation.")
@@ -67,14 +103,15 @@ def add(ctx, profiles, image, tag, name, yes):
     if profiles:
         # Batch mode: parse image:tag:name specs
         for spec in profiles:
-            parts = spec.split(":")
-            img = parts[0]
-            t = parts[1] if len(parts) > 1 else tag
-            n = parts[2] if len(parts) > 2 else img.split("/")[-1]
-            if n in existing or n in [p.name for p in to_add]:
-                warning(f"Skipping '{n}' (already exists).")
+            try:
+                parsed = _parse_profile_spec(spec, tag)
+            except ValueError as exc:
+                error(str(exc))
+                return
+            if parsed.name in existing or parsed.name in [p.name for p in to_add]:
+                warning(f"Skipping '{parsed.name}' (already exists).")
                 continue
-            to_add.append(ProfileConfig(name=n, image=img, tag=t))
+            to_add.append(parsed)
     elif image:
         # Single mode via flags
         n = name or image.split("/")[-1]
@@ -113,16 +150,20 @@ def add(ctx, profiles, image, tag, name, yes):
     info(f"\nPulling {len(to_add)} image(s)...")
     failed = []
     for p in to_add:
-        full = f"{p.image}:{p.tag}"
-        if not pull_image(full):
+        full = qualify_image(f"{p.image}:{p.tag}")
+        pulled = True
+        for target in targets:
+            result, _pull_error = _pull_image(get_runtime(target), full)
+            if result is None or result.returncode != 0:
+                pulled = False
+        if not pulled:
             failed.append(p.name)
             warning(f"  Failed to pull {full}. Skipping '{p.name}'.")
 
     # Add successful ones to ALL targeted instances
     added = [p for p in to_add if p.name not in failed]
     if not added:
-        error("No profiles were added (all pulls failed).")
-        return
+        raise click.ClickException("No profiles were added (all pulls failed).")
 
     def _apply_add(inst):
         cfg = load_config(inst)
@@ -137,7 +178,7 @@ def add(ctx, profiles, image, tag, name, yes):
         for p in new:
             success(f"  [{inst.name}] Added: {p.name}")
 
-    for_each_instance(ctx, _apply_add)
+    for_each_instance(ctx, lambda inst: _run_locked(inst, _apply_add))
     info("Run 'easy-opal restart' to apply.")
 
 
@@ -192,7 +233,7 @@ def remove(ctx, names, yes):
             generate_compose(cfg, inst)
             success(f"  [{inst.name}] Removed {removed} profile(s)")
 
-    for_each_instance(ctx, _apply_remove)
+    for_each_instance(ctx, lambda inst: _run_locked(inst, _apply_remove))
     info("Run 'easy-opal restart' to apply.")
 
 
@@ -211,24 +252,31 @@ def rename(ctx, old_name, new_name):
             generate_compose(cfg, inst)
             success(f"  [{inst.name}] Renamed: {old_name} -> {new_name}")
 
-    for_each_instance(ctx, _apply_rename)
+    for_each_instance(ctx, lambda inst: _run_locked(inst, _apply_rename))
     info("Run 'easy-opal restart' to apply.")
 
 
 @profile.command()
 @click.argument("names", nargs=-1)
 @click.option("--no-apply", is_flag=True, help="Pull only, skip container recreation.")
+@click.option("--scheduled", is_flag=True, hidden=True)
 @click.pass_context
-def pull(ctx, names, no_apply):
+def pull(ctx, names, no_apply, scheduled):
     """Pull profile images and recreate their containers.
 
     Useful when profiles use mutable tags like ':latest' and the upstream
     image has been updated. Without arguments, pulls all profiles.
     """
-    from src.core.docker import get_compose_cmd
+    failures: list[str] = []
+    if scheduled:
+        no_apply = True
 
     def _pull_and_recreate(inst):
         cfg = load_config(inst)
+        if scheduled and not cfg.profile_updater.enabled:
+            dim(f"  [{inst.name}] Scheduled profile pulls are disabled; skipping.")
+            return
+        runtime = get_runtime(inst)
         targets = [p for p in cfg.profiles if not names or p.name in names]
 
         if names:
@@ -238,32 +286,47 @@ def pull(ctx, names, no_apply):
         if not targets:
             return
 
-        cmd = get_compose_cmd()
-        if not cmd:
-            return
-
         for p in targets:
-            full = f"{p.image}:{p.tag}"
+            full = qualify_image(f"{p.image}:{p.tag}")
             info(f"  [{inst.name}] Pulling {full}...")
-            if not pull_image(full):
+            result, pull_error = _pull_image(runtime, full)
+            if result is None or result.returncode != 0:
                 error(f"  [{inst.name}] Failed: {full}")
+                suffix = f" ({pull_error})" if pull_error else ""
+                failures.append(f"{inst.name}: pull {full}{suffix}")
                 continue
 
             if no_apply:
                 continue
 
             info(f"  [{inst.name}] Recreating '{p.name}'...")
-            result = subprocess.run(
-                cmd + ["--project-name", cfg.stack_name, "-f", str(inst.compose_path),
-                       "up", "-d", "--force-recreate", "--no-deps", p.name],
+            result = runtime.compose(
+                ["up", "-d", "--force-recreate", "--no-deps", p.name],
+                inst, project_name=cfg.stack_name,
                 capture_output=True, text=True, check=False,
+                timeout=COMPOSE_TIMEOUT_SECONDS,
             )
             if result.returncode == 0:
                 success(f"  [{inst.name}] '{p.name}' refreshed ({p.tag}).")
             else:
                 error(f"  [{inst.name}] Recreate failed: {result.stderr.strip()}")
+                failures.append(f"{inst.name}: recreate {p.name}")
 
-    for_each_instance(ctx, _pull_and_recreate)
+    def _run(inst):
+        try:
+            with InstanceLock(
+                inst,
+                timeout_seconds=LOCK_TIMEOUT_SECONDS if scheduled else 0,
+            ):
+                return _pull_and_recreate(inst)
+        except RuntimeError as exc:
+            failures.append(f"{inst.name}: {exc}")
+
+    for_each_instance(ctx, _run)
+    if failures:
+        raise click.ClickException(
+            "Profile refresh failed for " + ", ".join(failures)
+        )
     if no_apply:
         info("Run 'easy-opal restart' to apply.")
 
@@ -279,19 +342,23 @@ def change_version(ctx, name, tag, no_apply):
     Pulls the new image (or re-pulls if tag is unchanged, useful for :latest)
     and force-recreates only the affected container.
     """
-    from src.core.docker import get_compose_cmd
+    failures: list[str] = []
 
     def _apply_change(inst):
         cfg = load_config(inst)
+        runtime = get_runtime(inst)
         pr = next((p for p in cfg.profiles if p.name == name), None)
         if not pr:
             warning(f"  [{inst.name}] Profile '{name}' not found, skipping.")
             return
 
-        full_image = f"{pr.image}:{tag}"
+        full_image = qualify_image(f"{pr.image}:{tag}")
         info(f"  [{inst.name}] Pulling {full_image}...")
-        if not pull_image(full_image):
+        result, pull_error = _pull_image(runtime, full_image)
+        if result is None or result.returncode != 0:
             error(f"  [{inst.name}] Failed to pull {full_image}.")
+            suffix = f" ({pull_error})" if pull_error else ""
+            failures.append(f"{inst.name}: pull {full_image}{suffix}")
             return
 
         old_tag = pr.tag
@@ -306,22 +373,24 @@ def change_version(ctx, name, tag, no_apply):
         if no_apply:
             return
 
-        cmd = get_compose_cmd()
-        if not cmd:
-            return
-
         info(f"  [{inst.name}] Recreating container '{name}'...")
-        result = subprocess.run(
-            cmd + ["--project-name", cfg.stack_name, "-f", str(inst.compose_path),
-                   "up", "-d", "--force-recreate", "--no-deps", name],
+        result = runtime.compose(
+            ["up", "-d", "--force-recreate", "--no-deps", name],
+            inst, project_name=cfg.stack_name,
             capture_output=True, text=True, check=False,
+            timeout=COMPOSE_TIMEOUT_SECONDS,
         )
         if result.returncode == 0:
             success(f"  [{inst.name}] '{name}' running on tag '{tag}'.")
         else:
             error(f"  [{inst.name}] Recreate failed: {result.stderr.strip()}")
+            failures.append(f"{inst.name}: recreate {name}")
 
-    for_each_instance(ctx, _apply_change)
+    for_each_instance(ctx, lambda inst: _run_locked(inst, _apply_change))
+    if failures:
+        raise click.ClickException(
+            "Profile version change failed for " + ", ".join(failures)
+        )
     if no_apply:
         info("Run 'easy-opal restart' to apply.")
 
@@ -341,7 +410,7 @@ def duplicate(ctx, source_name, new_name):
             generate_compose(cfg, inst)
             success(f"  [{inst.name}] Duplicated: {source_name} -> {new_name}")
 
-    for_each_instance(ctx, _apply_dup)
+    for_each_instance(ctx, lambda inst: _run_locked(inst, _apply_dup))
     info("Run 'easy-opal restart' to apply.")
 
 
@@ -404,7 +473,7 @@ def list_profiles(ctx):
         table.add_column("Status")
 
         for p in config.profiles:
-            status = _get_container_status(config.stack_name, p.name)
+            status = _get_container_status(instance, config.stack_name, p.name)
             if status == "running":
                 status_str = "[green]running[/green]"
             elif status == "not created":

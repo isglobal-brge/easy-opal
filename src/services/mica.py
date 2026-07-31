@@ -17,7 +17,7 @@ class MicaService:
 
         return {
             "mica": {
-                "image": f"obiba/mica:{config.mica.version}",
+                "image": f"docker.io/obiba/mica:{config.mica.version}",
                 "container_name": f"{config.stack_name}-mica",
                 "restart": "always",
                 "depends_on": {

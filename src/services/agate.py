@@ -17,12 +17,12 @@ class AgateService:
 
         return {
             "agate": {
-                "image": f"obiba/agate:{config.agate.version}",
+                "image": f"docker.io/obiba/agate:{config.agate.version}",
                 "container_name": f"{config.stack_name}-agate",
                 "restart": "always",
                 "depends_on": {"mongo": {"condition": "service_healthy"}},
                 "volumes": [
-                    f"{ctx.data_dir / 'agate'}:/srv",
+                    f"{ctx.data_dir / 'agate'}:/srv:Z",
                 ],
                 "environment": {
                     "AGATE_ADMINISTRATOR_PASSWORD": agate_pw,

@@ -1,0 +1,168 @@
+name: Container runtimes
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v9.0.0
+      - run: uv sync --frozen
+      - run: uv run pytest -q --ignore=tests/test_selenium_login.py
+
+  compose-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [docker, podman]
+    runs-on: ubuntu-24.04
+    env:
+      TEST_RUNTIME: ${{ matrix.runtime }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          save-cache: false
+      - name: Configure temporary paths
+        run: |
+          echo "EASY_OPAL_HOME=$RUNNER_TEMP/easy-opal" >> "$GITHUB_ENV"
+          echo "UV_TOOL_BIN_DIR=$RUNNER_TEMP/uv-tools" >> "$GITHUB_ENV"
+      - run: uv sync --frozen
+      - name: Install Podman and its independent Compose provider
+        if: matrix.runtime == 'podman'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes podman
+          mkdir -p "$UV_TOOL_BIN_DIR"
+          echo "$UV_TOOL_BIN_DIR" >> "$GITHUB_PATH"
+          uv tool install "podman-compose==1.6.0"
+      - name: Make Docker unavailable in the Podman lane
+        if: matrix.runtime == 'podman'
+        run: |
+          mkdir -p "$RUNNER_TEMP/no-docker"
+          printf '#!/bin/sh\necho "Docker must not be invoked in the Podman lane" >&2\nexit 127\n' > "$RUNNER_TEMP/no-docker/docker"
+          chmod +x "$RUNNER_TEMP/no-docker/docker"
+          ln -s docker "$RUNNER_TEMP/no-docker/docker-compose"
+          echo "$RUNNER_TEMP/no-docker" >> "$GITHUB_PATH"
+      - name: Verify isolated Podman toolchain
+        if: matrix.runtime == 'podman'
+        run: |
+          command -v docker | grep -Fx "$RUNNER_TEMP/no-docker/docker"
+          command -v docker-compose | grep -Fx "$RUNNER_TEMP/no-docker/docker-compose"
+          command -v podman-compose | grep -Fx "$UV_TOOL_BIN_DIR/podman-compose"
+      - name: Generate Compose through the selected runtime
+        run: |
+          uv run python - <<'PY'
+          import os
+
+          from src.core.config_manager import save_config
+          from src.core.container_runtime import set_requested_runtime
+          from src.core.docker import generate_compose
+          from src.core.instance_manager import create_instance
+          from src.models.config import OpalConfig
+
+          runtime = os.environ["TEST_RUNTIME"]
+          instance = create_instance("smoke")
+          config = OpalConfig(
+              stack_name="smoke",
+              ssl={"strategy": "none"},
+              opal_http_port=18080,
+          )
+          save_config(config, instance)
+          set_requested_runtime(runtime)
+          generate_compose(config, instance)
+          PY
+      - name: Validate with Docker Compose
+        if: matrix.runtime == 'docker'
+        run: docker compose -f "$EASY_OPAL_HOME/instances/smoke/docker-compose.yml" config --quiet
+      - name: Validate with Podman Compose
+        if: matrix.runtime == 'podman'
+        env:
+          PODMAN_COMPOSE_PROVIDER: podman-compose
+        run: podman compose -f "$EASY_OPAL_HOME/instances/smoke/docker-compose.yml" config
+      - name: Exercise Compose lifecycle and no-op automatic update
+        run: |
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from src.core.auto_update import update_instance
+          from src.core.container_runtime import get_runtime, set_requested_runtime
+          from src.models.instance import InstanceContext
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "easy-opal-engine-smoke"
+          root.mkdir(parents=True, exist_ok=True)
+          instance = InstanceContext(name="engine-smoke", root=root)
+
+          requested = os.environ["TEST_RUNTIME"]
+          if requested == "podman":
+              set_requested_runtime("auto")
+              if get_runtime().name != "podman":
+                  raise RuntimeError("Auto mode did not select isolated Podman")
+          set_requested_runtime(requested)
+          runtime = get_runtime()
+          source_image = "docker.io/library/alpine:3.20"
+          pulled = runtime.pull(source_image)
+          if pulled.returncode != 0:
+              raise RuntimeError("Could not pull the smoke image")
+          inspected = runtime.run(
+              ["image", "inspect", source_image],
+              capture_output=True,
+              text=True,
+              check=True,
+          )
+          repo_digests = json.loads(inspected.stdout)[0].get("RepoDigests", [])
+          if not repo_digests:
+              raise RuntimeError("Runtime did not report an immutable image digest")
+          pinned_image = repo_digests[0]
+
+          instance.compose_path.write_text(f"""
+          services:
+            smoke:
+              image: {pinned_image}
+              command: ["sh", "-c", "sleep 600"]
+              healthcheck:
+                test: ["CMD", "true"]
+                interval: 1s
+                timeout: 1s
+                retries: 10
+          """.lstrip())
+
+          started = False
+          try:
+              runtime.compose(
+                  ["up", "-d", "--wait"],
+                  instance,
+                  project_name="engine-smoke",
+                  check=True,
+                  timeout=180,
+              )
+              started = True
+              update = update_instance(
+                  runtime,
+                  instance,
+                  "engine-smoke",
+              )
+              if not update.pulled_images:
+                  raise RuntimeError("Automatic update did not inspect any images")
+              if update.changed_images:
+                  raise RuntimeError(
+                      "Pinned smoke image changed during the no-op update check"
+                  )
+          finally:
+              stopped = runtime.compose(
+                  ["down", "-v"],
+                  instance,
+                  project_name="engine-smoke",
+                  check=False,
+                  timeout=60,
+              )
+              if started and stopped.returncode != 0:
+                  raise RuntimeError(
+                      f"Compose down failed with exit code {stopped.returncode}"
+                  )
+          PY

@@ -1,8 +1,11 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from src.models.enums import SSLStrategy, DatabaseType
+
+
+SAFE_RESOURCE_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
 
 
 class SSLConfig(BaseModel):
@@ -11,8 +14,10 @@ class SSLConfig(BaseModel):
 
 
 class DatabaseConfig(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     type: DatabaseType
-    name: str
+    name: str = Field(pattern=SAFE_RESOURCE_NAME_PATTERN)
     port: int
     user: str = "opal"
     database: str = "opaldata"
@@ -22,14 +27,18 @@ class DatabaseConfig(BaseModel):
 
 
 class ProfileConfig(BaseModel):
-    name: str
+    model_config = ConfigDict(validate_assignment=True)
+
+    name: str = Field(pattern=SAFE_RESOURCE_NAME_PATTERN)
     image: str = "datashield/rock-base"
     tag: str = "latest"
 
 
 class WatchtowerConfig(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     enabled: bool = False
-    poll_interval_hours: int = 24
+    poll_interval_hours: int = Field(default=24, ge=1)
     cleanup: bool = True
 
 
@@ -64,14 +73,18 @@ class KeycloakConfig(BaseModel):
 
 
 class BackupConfig(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     enabled: bool = False
-    interval_hours: int = 24
-    keep: int = 7
+    interval_hours: int = Field(default=24, ge=1)
+    keep: int = Field(default=7, ge=0)
 
 
 class ProfileUpdaterConfig(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     enabled: bool = False
-    interval_hours: int = 24
+    interval_hours: int = Field(default=24, ge=1)
 
 
 class ArmadilloConfig(BaseModel):
@@ -81,9 +94,14 @@ class ArmadilloConfig(BaseModel):
 
 
 class OpalConfig(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+    _source_digest: str | None = PrivateAttr(default=None)
+
     schema_version: int = 2
     flavor: Literal["opal", "armadillo"] = "opal"
-    stack_name: str = "easy-opal"
+    stack_name: str = Field(
+        default="easy-opal", pattern=SAFE_RESOURCE_NAME_PATTERN
+    )
     hosts: list[str] = Field(default_factory=lambda: ["localhost", "127.0.0.1"])
     opal_version: str = "latest"
     mongo_version: str = "latest"

@@ -125,10 +125,11 @@ class TestCSRF:
         assert resp.status_code == 200
 
     def test_csrf_header_present_in_container(self):
-        """CSRF_ALLOWED env var should include our host+port."""
-        import subprocess
-        result = subprocess.run(
-            ["docker", "exec", "seltest-opal", "env"],
+        """CSRF_ALLOWED must be explicitly configured for the Opal SPA."""
+        from src.core.container_runtime import get_runtime
+
+        result = get_runtime().run(
+            ["exec", "seltest-opal", "env"],
             capture_output=True, text=True, check=False,
         )
         assert "CSRF_ALLOWED" in result.stdout

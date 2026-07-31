@@ -1,7 +1,7 @@
 [project]
 name = "easy-opal"
-version = "2.2.0"
-description = "Deploy and manage OBiBa Opal and Armadillo DataSHIELD environments with Docker."
+version = "2.3.0"
+description = "Deploy and manage OBiBa Opal and Armadillo DataSHIELD environments with Docker or Podman."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
@@ -11,7 +11,7 @@ authors = [
     {name = "Juan R González", email = "juanr.gonzalez@isglobal.org"}
 ]
 keywords = [
-    "opal", "obiba", "datashield", "armadillo", "docker",
+    "opal", "obiba", "datashield", "armadillo", "docker", "podman",
     "epidemiology", "bioinformatics", "r-server", "rock",
 ]
 classifiers = [
@@ -30,12 +30,20 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 dependencies = [
-    "click>=8.1.7",
+    "click>=8.3.3",
     "pyyaml>=6.0",
     "rich>=13.7.1",
-    "requests>=2.31.0",
-    "cryptography>=42.0.0",
+    "requests>=2.33.0",
+    "cryptography>=48.0.1",
     "pydantic>=2.0",
+    "idna>=3.15",
+    "pygments>=2.20.0",
+    "urllib3>=2.7.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
 ]
 
 [project.urls]

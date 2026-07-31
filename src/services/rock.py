@@ -1,6 +1,7 @@
 """Rock R server profiles: one service instance per configured profile."""
 from src.models.config import OpalConfig, ProfileConfig
 from src.models.instance import InstanceContext
+from src.utils.images import qualify_image
 
 
 class RockService:
@@ -26,7 +27,7 @@ class RockService:
 
         return {
             service_name: {
-                "image": f"{p.image}:{p.tag}",
+                "image": qualify_image(f"{p.image}:{p.tag}"),
                 "container_name": f"{config.stack_name}-{service_name}",
                 "restart": "always",
                 "environment": {

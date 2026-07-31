@@ -10,44 +10,80 @@ from rich.panel import Panel
 
 from src.core import instance_manager
 from src.core.config_manager import config_exists, load_config
+from src.core.container_runtime import RuntimeSelectionError, get_runtime
 from src.core.secrets_manager import load_secrets
 from src.core.ssl import get_cert_info
 from src.utils.console import console, success, error, dim
 
 
-def _get_container_status(stack_name: str) -> dict[str, str]:
-    """Query Docker for container statuses of a stack."""
+_RUNTIME_ERROR_KEY = "__runtime_error__"
+
+
+def _json_records(output: str) -> list[dict]:
+    """Accept both JSON arrays and newline-delimited JSON from Compose providers."""
+    output = output.strip()
+    if not output:
+        return []
     try:
-        result = subprocess.run(
-            ["docker", "compose", "--project-name", stack_name, "ps", "--format", "json"],
+        parsed = json.loads(output)
+        if isinstance(parsed, list):
+            return [item for item in parsed if isinstance(item, dict)]
+        if isinstance(parsed, dict):
+            return [parsed]
+    except json.JSONDecodeError:
+        pass
+    records = []
+    for line in output.splitlines():
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(item, dict):
+            records.append(item)
+    return records
+
+
+def _get_container_status(instance, stack_name: str) -> dict[str, str]:
+    """Query the selected runtime for container statuses of a stack."""
+    try:
+        runtime = get_runtime(instance)
+        result = runtime.compose(
+            ["ps", "--format", "json"], instance, project_name=stack_name,
             capture_output=True, text=True, check=False, timeout=5,
         )
         if result.returncode != 0:
             return {}
 
         statuses = {}
-        for line in result.stdout.strip().splitlines():
-            if not line.strip():
-                continue
-            try:
-                c = json.loads(line)
-                name = c.get("Name", c.get("name", "?"))
-                state = c.get("State", c.get("state", "?"))
-                health = c.get("Health", c.get("health", ""))
-                short_name = name.replace(f"{stack_name}-", "")
-                label = state
-                if health:
-                    label = f"{state} ({health})"
-                statuses[short_name] = label
-            except json.JSONDecodeError:
-                continue
+        for c in _json_records(result.stdout):
+            name = c.get("Name", c.get("name", c.get("Names", "?")))
+            if isinstance(name, list):
+                name = name[0] if name else "?"
+            status_detail = c.get("Status", c.get("status", ""))
+            state = c.get("State", c.get("state", status_detail or "?"))
+            health = c.get("Health", c.get("health", ""))
+            if not health and "healthy" in str(status_detail).lower():
+                health = "healthy"
+            short_name = name.replace(f"{stack_name}-", "")
+            label = state
+            if health:
+                label = f"{state} ({health})"
+            statuses[short_name] = label
         return statuses
+    except RuntimeSelectionError as exc:
+        return {_RUNTIME_ERROR_KEY: str(exc)}
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return {}
 
 
+def _get_runtime_name(instance) -> str:
+    return instance_manager.get_instance_runtime(instance) or "unbound"
+
+
 def _status_summary(statuses: dict[str, str]) -> str:
     """Summarize container statuses into a short string."""
+    if _RUNTIME_ERROR_KEY in statuses:
+        return "[red]runtime unavailable[/red]"
     if not statuses:
         return "[dim]stopped[/dim]"
 
@@ -69,7 +105,7 @@ def _status_summary(statuses: dict[str, str]) -> str:
 def instance():
     """Manage easy-opal instances / stacks (independent deployments).
 
-    Also available as 'easy-opal stack'. An instance's name is also its Docker
+    Also available as 'easy-opal stack'. An instance's name is also its container
     stack (Compose project) name.
     """
     pass
@@ -88,6 +124,7 @@ def list_cmd():
     table.add_column("Stack")
     table.add_column("SSL")
     table.add_column("Services")
+    table.add_column("Runtime")
     table.add_column("Containers")
     table.add_column("Last used", style="dim")
 
@@ -96,17 +133,17 @@ def list_cmd():
         accessed = (meta.get("last_accessed") or "?")[:10]
 
         if not path.exists():
-            table.add_row(name, "-", "-", "-", "[red]missing[/red]", accessed)
+            table.add_row(name, "-", "-", "-", "-", "[red]missing[/red]", accessed)
             continue
 
         try:
             ctx = instance_manager.get_instance(name)
         except ValueError:
-            table.add_row(name, "-", "-", "-", "[red]error[/red]", accessed)
+            table.add_row(name, "-", "-", "-", "-", "[red]error[/red]", accessed)
             continue
 
         if not config_exists(ctx):
-            table.add_row(name, "-", "-", "-", "[yellow]not configured[/yellow]", accessed)
+            table.add_row(name, "-", "-", "-", "-", "[yellow]not configured[/yellow]", accessed)
             continue
 
         cfg = load_config(ctx)
@@ -121,10 +158,15 @@ def list_cmd():
             services.append(f"{len(cfg.databases)} db")
         services_str = ", ".join(services)
 
-        statuses = _get_container_status(cfg.stack_name)
+        runtime_name = _get_runtime_name(ctx)
+        statuses = (
+            _get_container_status(ctx, cfg.stack_name)
+            if runtime_name != "unbound"
+            else {}
+        )
         containers = _status_summary(statuses)
 
-        table.add_row(name, cfg.stack_name, ssl, services_str, containers, accessed)
+        table.add_row(name, cfg.stack_name, ssl, services_str, runtime_name, containers, accessed)
 
     console.print(table)
 
@@ -132,26 +174,39 @@ def list_cmd():
 @instance.command()
 @click.argument("name")
 @click.option("--path", type=click.Path(), default=None, help="Custom parent directory.")
-def create(name: str, path: str | None):
+@click.pass_context
+def create(ctx, name: str, path: str | None):
     """Create a new instance."""
     try:
-        ctx = instance_manager.create_instance(name, Path(path) if path else None)
-        success(f"Instance '{name}' created at {ctx.root}")
+        runtime = None
+        if (ctx.obj or {}).get("runtime", "auto") != "auto":
+            runtime = get_runtime()
+
+        created = instance_manager.create_instance(
+            name, Path(path) if path else None
+        )
+        if runtime is not None:
+            instance_manager.set_instance_runtime(created, runtime.name)
+        success(f"Instance '{name}' created at {created.root}")
         console.print(f"Run [bold]easy-opal -i {name} setup[/bold] to configure it.")
-    except ValueError as e:
-        error(str(e))
+    except (RuntimeSelectionError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 @instance.command()
 @click.argument("name")
-@click.option("--delete-data", is_flag=True, help="Also delete all data and volumes.")
+@click.option(
+    "--delete-data",
+    is_flag=True,
+    help="Also delete named volumes; local config/backups are always deleted.",
+)
 @click.option("--yes", is_flag=True, help="Skip confirmation.")
 def remove(name: str, delete_data: bool, yes: bool):
     """Remove an instance (stops containers, optionally deletes volumes)."""
     if not yes:
         if delete_data:
             action = ("stop containers and delete the instance directory AND its "
-                      "Docker named volumes (all data) for")
+                      "named container volumes (all data) for")
         else:
             action = ("stop containers and delete the instance directory "
                       "(config, backups, certificates) for")
@@ -162,13 +217,13 @@ def remove(name: str, delete_data: bool, yes: bool):
     try:
         instance_manager.remove_instance(name, delete_data=delete_data)
         if delete_data:
-            msg = f"Instance '{name}' removed, including its Docker named volumes."
+            msg = f"Instance '{name}' removed, including its named container volumes."
         else:
             msg = (f"Instance '{name}' removed (config, backups, and certificates deleted). "
-                   f"Docker named volumes were preserved — use --delete-data to also remove them.")
+                   f"Named container volumes were preserved — use --delete-data to also remove them.")
         success(msg)
-    except ValueError as e:
-        error(str(e))
+    except (ValueError, RuntimeError) as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 @instance.command()
@@ -196,6 +251,7 @@ def info(name: str):
     config_table.add_column("Value")
 
     config_table.add_row("Stack", cfg.stack_name)
+    config_table.add_row("Runtime", _get_runtime_name(ctx))
     config_table.add_row("SSL", cfg.ssl.strategy.value)
     config_table.add_row("Hosts", ", ".join(cfg.hosts) if cfg.hosts else "(none)")
     config_table.add_row("Opal", cfg.opal_version)
@@ -212,7 +268,9 @@ def info(name: str):
     if cfg.mica.enabled:
         config_table.add_row("Mica", f"{cfg.mica.version} (ES: {cfg.mica.elasticsearch_version})")
     if cfg.watchtower.enabled:
-        config_table.add_row("Watchtower", f"every {cfg.watchtower.poll_interval_hours}h")
+        config_table.add_row(
+            "Automatic updates", f"every {cfg.watchtower.poll_interval_hours}h"
+        )
 
     console.print(config_table)
 
@@ -222,8 +280,17 @@ def info(name: str):
         console.print(f"\n[bold]Certificate:[/bold] expires {cert['not_after'][:10]}, SANs: {', '.join(cert['dns_names'])}")
 
     # Container status
-    statuses = _get_container_status(cfg.stack_name)
-    if statuses:
+    statuses = (
+        _get_container_status(ctx, cfg.stack_name)
+        if _get_runtime_name(ctx) != "unbound"
+        else {}
+    )
+    if _RUNTIME_ERROR_KEY in statuses:
+        console.print(
+            "\n[red]Containers unavailable:[/red] "
+            f"{statuses[_RUNTIME_ERROR_KEY]}"
+        )
+    elif statuses:
         console.print(f"\n[bold]Containers:[/bold]")
         for svc, status in sorted(statuses.items()):
             if "healthy" in status.lower():

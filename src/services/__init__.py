@@ -23,34 +23,36 @@ class ServiceModule(Protocol):
 
 
 class ServiceRegistry:
-    """Assembles a complete docker-compose dict from registered service modules."""
+    """Assembles a complete Compose dict from registered service modules."""
 
     def __init__(
         self,
         config: OpalConfig,
         ctx: InstanceContext,
         secrets: dict[str, str],
+        *,
+        runtime_name: str = "docker",
     ):
+        if runtime_name not in {"docker", "podman"}:
+            raise ValueError(
+                f"Unsupported container runtime '{runtime_name}'. "
+                "Expected 'docker' or 'podman'."
+            )
         self.config = config
         self.ctx = ctx
         self.secrets = secrets
+        self.runtime_name = runtime_name
         self._modules: list[ServiceModule] = []
         self._register_all()
 
     def _register_all(self) -> None:
         from src.services.nginx import NginxService
         from src.services.certbot import CertbotService
-        from src.services.watchtower import WatchtowerService
-        from src.services.backup import BackupService
-        from src.services.profile_updater import ProfileUpdaterService
 
         # Common services (both flavors)
         candidates: list[ServiceModule] = [
             NginxService(),
             CertbotService(),
-            WatchtowerService(),
-            BackupService(),
-            ProfileUpdaterService(),
         ]
 
         if self.config.flavor == "opal":
@@ -90,8 +92,33 @@ class ServiceRegistry:
 
         self._modules = [m for m in candidates if m.is_enabled(self.config)]
 
+    def validate_runtime_support(self) -> None:
+        if self.config.flavor == "armadillo" and self.config.databases:
+            raise ValueError(
+                "Additional PostgreSQL, MySQL, and MariaDB services are only "
+                "supported for the Opal flavor. Remove the database configuration "
+                "or select --flavor opal."
+            )
+        unsupported = [
+            mod.name
+            for mod in self._modules
+            if self.runtime_name
+            not in getattr(mod, "supported_runtimes", {"docker", "podman"})
+        ]
+        if unsupported:
+            features = ", ".join(unsupported)
+            raise ValueError(
+                f"Runtime '{self.runtime_name}' does not support these enabled "
+                f"features: {features}. Disable them before retrying or select "
+                "a supported runtime."
+            )
+
     def assemble_compose(self) -> dict[str, Any]:
         """Merge all enabled service fragments into a complete compose dict."""
+        # Validate every module before compose generation, since some modules
+        # write helper scripts as part of generating their fragment.
+        self.validate_runtime_support()
+
         services: dict[str, Any] = {}
         volumes: dict[str, Any] = {}
 
