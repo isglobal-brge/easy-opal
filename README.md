@@ -104,6 +104,8 @@ pip install easy-opal
 
 After installation, the `easy-opal` command is available from anywhere in your terminal.
 
+On a fresh Ubuntu, [UBUNTU.md](UBUNTU.md) lists every command, from installing Docker and uv to a running Opal.
+
 ## Your first deployment
 
 The easiest way to get started is the interactive setup wizard. It walks you through every step:
@@ -528,7 +530,7 @@ Rock is the R server that Opal uses for statistical analysis and DataSHIELD oper
 easy-opal profile list
 
 # Add a new profile
-easy-opal profile add --image datashield/rock-omics --tag 2.0 --name rock-omics
+easy-opal profile add --image datashield/rock-omics --tag latest --name rock-omics
 
 # Remove a profile
 easy-opal profile remove rock-omics --yes
